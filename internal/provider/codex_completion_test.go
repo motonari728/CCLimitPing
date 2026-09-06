@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -40,6 +41,9 @@ func TestCodexCompletionOutcomes(t *testing.T) {
 }
 
 func TestCodexCompletionAndFailureReadyTogether(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires Unix subprocess exit semantics")
+	}
 	exitErr := exec.Command("sh", "-c", "exit 1").Run()
 	if exitErr == nil {
 		t.Fatal("expected subprocess failure")
@@ -62,6 +66,9 @@ func TestCodexCompletionAndFailureReadyTogether(t *testing.T) {
 }
 
 func TestCodexShutdownExitStatus(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires Unix subprocess signal semantics")
+	}
 	for _, tc := range []struct {
 		script string
 		failed bool
