@@ -100,7 +100,7 @@ type TriggerResult struct {
 // VerifiedTrigger is implemented only by Codex-backed providers. Automatic
 // requests require fresh, bucket-specific start evidence before sending.
 type VerifiedTrigger interface {
-	TriggerAutomatic(context.Context, float64) (*TriggerResult, error)
+	TriggerAutomatic(context.Context, float64, time.Duration) (*TriggerResult, error)
 }
 
 // UsageHTTPError preserves usage endpoint HTTP failures so callers can make

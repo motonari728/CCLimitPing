@@ -47,7 +47,7 @@ func (s *Scheduler) runVerifiedTarget(ctx context.Context, t Target, p provider.
 			continue
 		}
 		if s.weeklyExhausted(u) {
-			d := u.Weekly.Remaining() + s.cfg.ResetBuffer.Duration
+			d := u.Weekly.Remaining()
 			if d > 5*time.Minute {
 				d = 5 * time.Minute
 			}
@@ -76,7 +76,8 @@ func (s *Scheduler) runVerifiedTarget(ctx context.Context, t Target, p provider.
 			}
 		}
 		if v.Recovery == "window_started" {
-			d := time.Until(v.NextEligible) + s.cfg.ResetBuffer.Duration
+			// Observe at rollover; the verification interval counts toward the buffer.
+			d := time.Until(v.NextEligible)
 			if d > 5*time.Minute {
 				d = 5 * time.Minute
 			}
@@ -95,6 +96,17 @@ func (s *Scheduler) runVerifiedTarget(ctx context.Context, t Target, p provider.
 			}
 			continue
 		}
+		if !v.PreviousReset.IsZero() {
+			if d := time.Until(v.PreviousReset.Add(s.cfg.ResetBuffer.Duration)); d > 0 {
+				if d > 5*time.Minute {
+					d = 5 * time.Minute
+				}
+				if !wait("waiting for reset_buffer", d) {
+					return
+				}
+				continue // polling and verification count toward the same fixed deadline
+			}
+		}
 		if desc, active, err := activeProviderTask(ctx, t.Provider); err != nil || active {
 			if !wait(desc+" active or activity unavailable", activeTaskPoll) {
 				return
@@ -102,7 +114,7 @@ func (s *Scheduler) runVerifiedTarget(ctx context.Context, t Target, p provider.
 			continue
 		}
 		s.live.set(name, "checking and sending ping…", time.Time{})
-		res, err := p.TriggerAutomatic(ctx, s.cfg.WeeklyThreshold)
+		res, err := p.TriggerAutomatic(ctx, s.cfg.WeeklyThreshold, s.cfg.ResetBuffer.Duration)
 		if errors.Is(err, codexstate.ErrBusy) || errors.Is(err, codexstate.ErrDeferred) {
 			if !wait("ping deferred", codexstate.Interval) {
 				return

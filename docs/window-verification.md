@@ -65,7 +65,13 @@ of an unstarted five-hour window. One ping observes both windows in its own
 bucket, never the other provider's bucket.
 
 Automatic sends require fresh not-started evidence, usable state storage and
-the existing alignment, activity and weekly/credit guards. After a send,
+the existing alignment, activity and weekly/credit guards. `reset_buffer`
+(default 10 seconds) is a watcher safety margin after a known previous window's
+reset boundary, not an extra delay after verification. The boundary is persisted
+per window; observation time counts toward the buffer. For example, a ten-minute
+buffer leaves nine minutes after a one-minute verification. Polling never moves
+that deadline. When the previous reset boundary is unknown, no buffer delay is
+added; explicit manual pings also bypass it. After a send,
 observation failure causes further reads, not immediate model retries. Confirmed
 failure permits retries after at least 1, 5 and then 15 minutes. At most four
 automatic attempts are allowed in a rolling hour per account and bucket.

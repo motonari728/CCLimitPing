@@ -12,7 +12,7 @@ import (
 
 type verifiedStub struct{ stubProvider }
 
-func (p *verifiedStub) TriggerAutomatic(ctx context.Context, _ float64) (*provider.TriggerResult, error) {
+func (p *verifiedStub) TriggerAutomatic(ctx context.Context, _ float64, _ time.Duration) (*provider.TriggerResult, error) {
 	return p.Trigger(ctx, false)
 }
 
@@ -44,6 +44,34 @@ func TestVerifiedSchedulerGates(t *testing.T) {
 			_, n := p.counts()
 			if n != tc.want {
 				t.Fatalf("triggers=%d", n)
+			}
+		})
+	}
+}
+
+func TestVerifiedSchedulerHonorsResetBuffer(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		previousReset time.Time
+		buffer        time.Duration
+		want          int
+	}{
+		{"known-boundary", time.Now().Add(-time.Minute), 10 * time.Minute, 0},
+		{"short-buffer", time.Now().Add(-time.Minute), 35 * time.Second, 1},
+		{"unknown-boundary", time.Time{}, 10 * time.Minute, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &verifiedStub{stubProvider: stubProvider{usage: &usage.Usage{Verification: &usage.Verification{
+				Target: "weekly", Recovery: "ready", PreviousReset: tc.previousReset,
+			}}}}
+			cfg := testConfig()
+			cfg.ResetBuffer.Duration = tc.buffer
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+			defer cancel()
+			New(cfg, []Target{{Provider: p}}, false, false, io.Discard).Run(ctx)
+			_, n := p.counts()
+			if n != tc.want {
+				t.Fatalf("triggers=%d want %d", n, tc.want)
 			}
 		})
 	}

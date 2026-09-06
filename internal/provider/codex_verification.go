@@ -109,7 +109,7 @@ func boundedQuota(ctx context.Context, name string, cfg config.ProviderConfig) (
 	return readVerifiedUsage(readCtx, name, cfg, false)
 }
 
-func pingVerified(ctx context.Context, name string, cfg config.ProviderConfig, dry, automatic bool, threshold float64) (*TriggerResult, error) {
+func pingVerified(ctx context.Context, name string, cfg config.ProviderConfig, dry, automatic bool, threshold float64, resetBuffer time.Duration) (*TriggerResult, error) {
 	if dry {
 		return triggerCodex(ctx, cfg, true)
 	}
@@ -151,6 +151,7 @@ func pingVerified(ctx context.Context, name string, cfg config.ProviderConfig, d
 		}
 	}
 	store, storeErr := quotaStore()
+	store.ResetBuffer = resetBuffer
 	key := quotaBucket(name, cfg)
 	claim := ""
 	if storeErr == nil && account != "" {

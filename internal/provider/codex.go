@@ -73,11 +73,11 @@ func (c *Codex) ReadUsage(ctx context.Context) (*usage.Usage, error) {
 }
 
 func (c *Codex) Trigger(ctx context.Context, dryRun bool) (*TriggerResult, error) {
-	return pingVerified(ctx, c.Name(), c.cfg, dryRun, false, 0)
+	return pingVerified(ctx, c.Name(), c.cfg, dryRun, false, 0, 0)
 }
 
-func (c *Codex) TriggerAutomatic(ctx context.Context, threshold float64) (*TriggerResult, error) {
-	return pingVerified(ctx, c.Name(), c.cfg, false, true, threshold)
+func (c *Codex) TriggerAutomatic(ctx context.Context, threshold float64, resetBuffer time.Duration) (*TriggerResult, error) {
+	return pingVerified(ctx, c.Name(), c.cfg, false, true, threshold, resetBuffer)
 }
 
 // RedeemResetCredit spends the next available reset credit right now. Each call
@@ -225,11 +225,11 @@ func (s *Spark) ReadUsage(ctx context.Context) (*usage.Usage, error) {
 }
 
 func (s *Spark) Trigger(ctx context.Context, dryRun bool) (*TriggerResult, error) {
-	return pingVerified(ctx, s.Name(), s.cfg, dryRun, false, 0)
+	return pingVerified(ctx, s.Name(), s.cfg, dryRun, false, 0, 0)
 }
 
-func (s *Spark) TriggerAutomatic(ctx context.Context, threshold float64) (*TriggerResult, error) {
-	return pingVerified(ctx, s.Name(), s.cfg, false, true, threshold)
+func (s *Spark) TriggerAutomatic(ctx context.Context, threshold float64, resetBuffer time.Duration) (*TriggerResult, error) {
+	return pingVerified(ctx, s.Name(), s.cfg, false, true, threshold, resetBuffer)
 }
 
 func codexActiveTask(_ context.Context) (string, bool, error) {

@@ -87,12 +87,13 @@ type Usage struct {
 
 // Verification separates a completed CLI request from an observed quota window.
 type Verification struct {
-	FiveHour     StartStatus
-	Weekly       StartStatus
-	Target       string
-	Recovery     string
-	NextEligible time.Time
-	Warning      string
+	FiveHour      StartStatus
+	Weekly        StartStatus
+	Target        string
+	Recovery      string
+	NextEligible  time.Time
+	PreviousReset time.Time // known reset boundary of the target's previous window
+	Warning       string
 }
 
 type StartStatus struct {

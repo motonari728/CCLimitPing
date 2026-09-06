@@ -40,6 +40,7 @@ type window struct {
 	State    string
 	// ConfirmedReset is independent of the post-attempt failure baseline.
 	ConfirmedReset time.Time
+	PreviousReset  time.Time
 }
 
 type bucket struct {
@@ -60,7 +61,10 @@ type diskState struct {
 	Buckets map[string]*bucket
 }
 
-type Store struct{ Dir string }
+type Store struct {
+	Dir         string
+	ResetBuffer time.Duration // automatic sends only; never shifts an observation
+}
 
 func sample(w usage.Window, now time.Time) Sample {
 	return Sample{At: now, Reset: w.ResetsAt, Seconds: w.WindowSeconds, Used: w.UsedPercent}
@@ -73,14 +77,20 @@ func valid(s Sample) bool {
 }
 
 func observe(w *window, s Sample, duringAttempt bool) usage.StartStatus {
+	previousReset := w.PreviousReset
+	if w.Latest.Seconds != s.Seconds || s.At.Before(w.Latest.At) {
+		previousReset = time.Time{}
+	} else if !w.ConfirmedReset.IsZero() && !w.ConfirmedReset.After(s.At) {
+		previousReset = w.ConfirmedReset
+	}
 	if !valid(s) {
-		*w = window{}
+		*w = window{PreviousReset: previousReset, Latest: s}
 		return usage.StartStatus{State: Unknown}
 	}
 	old := w.Baseline
 	if w.Latest.Seconds != s.Seconds || s.At.Before(w.Latest.At) ||
 		(!w.ConfirmedReset.IsZero() && (!w.ConfirmedReset.After(s.At) || !near(w.ConfirmedReset, s.Reset))) {
-		*w = window{}
+		*w = window{PreviousReset: previousReset}
 		old = Sample{}
 	}
 	state := Unknown
@@ -145,6 +155,9 @@ func view(b *bucket, now time.Time) *usage.Verification {
 	v := &usage.Verification{FiveHour: status(b.FiveHour, now), Weekly: status(b.Weekly, now)}
 	name, w := target(b)
 	v.Target = name
+	if w != nil {
+		v.PreviousReset = w.PreviousReset
+	}
 	switch {
 	case b.ClaimID != "" && b.ClaimUntil.After(now):
 		v.Recovery, v.NextEligible = "ping_running", b.ClaimUntil
@@ -250,7 +263,8 @@ func (s Store) Begin(account, key string, automatic bool, observedAt, now time.T
 			v := view(b, now)
 			_, w := target(b)
 			if b.ClaimID != "" || !b.LastRead.Equal(observedAt) || now.Sub(observedAt) > 3*time.Second ||
-				w == nil || w.State != NotStarted || v.NextEligible.After(now) {
+				w == nil || w.State != NotStarted || v.NextEligible.After(now) ||
+				(!v.PreviousReset.IsZero() && v.PreviousReset.Add(s.ResetBuffer).After(now)) {
 				return ErrDeferred
 			}
 			b.Attempts = append(b.Attempts, now)

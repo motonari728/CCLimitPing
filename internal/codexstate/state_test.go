@@ -2,6 +2,7 @@ package codexstate
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -321,5 +322,66 @@ func TestAutomaticBudgetsAreBucketSpecific(t *testing.T) {
 	read(t, s, "spark:model", quota(now, now.Add(5*time.Hour), 0, false))
 	if _, err := s.Begin("account", "spark:model", true, now, now); err != nil {
 		t.Fatal("Codex budget blocked Spark", err)
+	}
+}
+
+func TestResetBufferUsesPersistedPreviousBoundary(t *testing.T) {
+	for _, weekly := range []bool{false, true} {
+		for _, tc := range []struct {
+			name          string
+			buffer        time.Duration
+			known, manual bool
+			blocked       bool
+		}{
+			{"ten-minute-buffer", 10 * time.Minute, true, false, true},
+			{"verification-covers-buffer", 35 * time.Second, true, false, false},
+			{"unknown-reset", 10 * time.Minute, false, false, false},
+			{"manual-bypass", 10 * time.Minute, true, true, false},
+		} {
+			t.Run(fmt.Sprintf("%s/weekly=%t", tc.name, weekly), func(t *testing.T) {
+				dir := t.TempDir()
+				s := Store{Dir: dir, ResetBuffer: tc.buffer}
+				length := 5 * time.Hour
+				if weekly {
+					length = 7 * 24 * time.Hour
+				}
+				reset := epoch.Add(time.Minute)
+				if tc.known {
+					read(t, s, "codex", quota(epoch, reset, 1, weekly))
+					// The expired snapshot itself must not erase the known boundary.
+					read(t, s, "codex", quota(reset, reset, 0, weekly))
+				}
+				for _, d := range []time.Duration{time.Second, 61 * time.Second} {
+					now := reset.Add(d)
+					v := read(t, Store{Dir: dir}, "codex", quota(now, now.Add(length), 0, weekly))
+					if tc.known && !v.PreviousReset.Equal(reset) {
+						t.Fatalf("boundary lost on restart: %v", v.PreviousReset)
+					}
+					if !tc.known && !v.PreviousReset.IsZero() {
+						t.Fatal("invented boundary")
+					}
+				}
+				now := reset.Add(61 * time.Second)
+				_, err := s.Begin("account", "codex", !tc.manual, now, now)
+				if tc.blocked {
+					if !errors.Is(err, ErrDeferred) {
+						t.Fatalf("early send: %v", err)
+					}
+					// Repeated moving resets do not move the buffer deadline.
+					for d := 2 * time.Minute; d <= 10*time.Minute; d += time.Minute {
+						now = reset.Add(d)
+						v := read(t, Store{Dir: dir}, "codex", quota(now, now.Add(length), 0, weekly))
+						if !v.PreviousReset.Equal(reset) {
+							t.Fatal(v.PreviousReset)
+						}
+					}
+					if _, err := s.Begin("account", "codex", true, now, now); err != nil {
+						t.Fatalf("buffer counted twice: %v", err)
+					}
+				} else if err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
 	}
 }
