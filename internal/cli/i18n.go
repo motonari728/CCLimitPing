@@ -6,10 +6,17 @@ import (
 )
 
 type cliText struct {
-	rootShort     string
-	rootLong      string
-	helpFlag      string
-	usageTemplate string
+	verifyStarted    string
+	verifyNotStarted string
+	verifyUnknown    string
+	verifyRecovery   string
+	verifyDisabled   string
+	verifyNoBaseline string
+	verifyCheckFmt   string
+	rootShort        string
+	rootLong         string
+	helpFlag         string
+	usageTemplate    string
 
 	helpCommandShort string
 	helpCommandLong  string
@@ -186,9 +193,16 @@ func isChineseLocale() bool {
 }
 
 var enText = cliText{
-	rootShort: "Keep Claude Code / Codex / Spark rate-limit windows back-to-back",
-	rootLong:  "limitping pings your AI coding provider the moment its 5h rate-limit window resets, so the next window starts immediately and stays aligned. Usage is read via zero-quota endpoints; pings go through the official CLIs.",
-	helpFlag:  "help for this command",
+	verifyStarted:    "window started",
+	verifyNotStarted: "window not started (reset is an estimate)",
+	verifyUnknown:    "window start unconfirmed (reset is an estimate)",
+	verifyRecovery:   "quota recovery / next eligibility",
+	verifyDisabled:   "  This provider is disabled in config and will not appear in `limitping status`.",
+	verifyNoBaseline: "  Run `limitping status` to collect a baseline, then check again after 60s.",
+	verifyCheckFmt:   "  Run `limitping status` after %s to recheck (no background check was scheduled by this command).\n",
+	rootShort:        "Keep Claude Code / Codex / Spark rate-limit windows back-to-back",
+	rootLong:         "limitping pings your AI coding provider the moment its 5h rate-limit window resets, so the next window starts immediately and stays aligned. Usage is read via zero-quota endpoints; pings go through the official CLIs.",
+	helpFlag:         "help for this command",
 	usageTemplate: `Usage:{{if .Runnable}}
   {{.UseLine}}{{end}}{{if .HasAvailableSubCommands}}
   {{.CommandPath}} [command]{{end}}{{if gt (len .Aliases) 0}}
@@ -444,9 +458,16 @@ Examples:
 }
 
 var zhText = cliText{
-	rootShort: "让 Claude Code / Codex / Spark 的限额窗口自动接龙",
-	rootLong:  "limitping 会在 AI 编程 Provider 的 5h 限额窗口重置时立即发送 ping，让下一个窗口马上开始并保持对齐。用量读取走零消耗接口；ping 通过官方 CLI 发送。",
-	helpFlag:  "显示此命令的帮助",
+	verifyStarted:    "窗口已启动",
+	verifyNotStarted: "窗口未启动（重置时间为估计值）",
+	verifyUnknown:    "窗口启动尚未确认（重置时间为估计值）",
+	verifyRecovery:   "窗口恢复 / 下次可尝试时间",
+	verifyDisabled:   "  此服务在配置中已禁用，不会出现在 `limitping status` 中。",
+	verifyNoBaseline: "  运行 `limitping status` 采集基准，60 秒后再次检查。",
+	verifyCheckFmt:   "  %s 后运行 `limitping status` 再次检查（本命令未安排后台检查）。\n",
+	rootShort:        "让 Claude Code / Codex / Spark 的限额窗口自动接龙",
+	rootLong:         "limitping 会在 AI 编程 Provider 的 5h 限额窗口重置时立即发送 ping，让下一个窗口马上开始并保持对齐。用量读取走零消耗接口；ping 通过官方 CLI 发送。",
+	helpFlag:         "显示此命令的帮助",
 	usageTemplate: `用法:{{if .Runnable}}
   {{.UseLine}}{{end}}{{if .HasAvailableSubCommands}}
   {{.CommandPath}} [command]{{end}}{{if gt (len .Aliases) 0}}

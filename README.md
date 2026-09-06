@@ -76,6 +76,11 @@ provider quota: `limitping ping --dry-run`, `limitping watch --dry-run`, or
 
 ## How it works
 
+Codex/Spark distinguish CLI completion from quota-window start, including 0%
+usage windows. Manual pings return without waiting a minute; watch performs
+follow-up observations and bounded recovery. See [window verification](docs/window-verification.md)
+for status/JSON semantics, state files, retry limits and platform limitations.
+
 Two cleanly separated jobs:
 
 | Job | Mechanism | Cost |

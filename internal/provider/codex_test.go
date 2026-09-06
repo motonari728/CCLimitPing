@@ -22,6 +22,7 @@ func fakeCodexHome(t *testing.T) {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("CODEX_HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	authJSON := `{"tokens":{"access_token":"access-token","refresh_token":"refresh-token","account_id":"account-123"}}`
 	if err := os.WriteFile(filepath.Join(home, "auth.json"), []byte(authJSON), 0o600); err != nil {
 		t.Fatal(err)
@@ -322,7 +323,7 @@ func TestCodexTriggerDryRunUsesInteractiveCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dry-run trigger: %v", err)
 	}
-	want := "codex -c model_reasoning_effort=low -m gpt-5.4-mini --search --sandbox read-only ok"
+	want := `codex -c model_reasoning_effort=low -m gpt-5.4-mini --search --sandbox read-only -c tui.notifications=["agent-turn-complete"] -c tui.notification_method="osc9" -c tui.notification_condition="always" ok`
 	if res.Command != want {
 		t.Fatalf("command = %q, want %q", res.Command, want)
 	}
@@ -345,7 +346,7 @@ func TestSparkTriggerDryRunUsesSparkModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dry-run trigger: %v", err)
 	}
-	want := "codex -c model_reasoning_effort=low -m gpt-5.3-codex-spark ok"
+	want := `codex -c model_reasoning_effort=low -m gpt-5.3-codex-spark -c tui.notifications=["agent-turn-complete"] -c tui.notification_method="osc9" -c tui.notification_condition="always" ok`
 	if res.Command != want {
 		t.Fatalf("command = %q, want %q", res.Command, want)
 	}

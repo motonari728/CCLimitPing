@@ -4,6 +4,10 @@
 
 # CCLimitPing (`limitping`)
 
+Codex/Spark 会分别判断 CLI 请求完成与限额窗口启动，包括使用率为 0% 的窗口。
+手动 ping 不会等待一分钟；watch 负责后续检查和有上限的重试。
+状态字段、存储位置和平台限制参见[窗口验证说明](docs/window-verification.md)。
+
 [English](README.md) | **中文**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)

@@ -87,12 +87,20 @@ type ResetCreditRedeemer interface {
 // consumed (parsed from the CLI's machine-readable output). CostUSD is 0 when
 // the provider doesn't report a cost (e.g. Codex).
 type TriggerResult struct {
-	Command      string
-	HasUsage     bool
-	InputTokens  int
-	OutputTokens int
-	TotalTokens  int
-	CostUSD      float64
+	Command       string
+	HasUsage      bool
+	InputTokens   int
+	OutputTokens  int
+	TotalTokens   int
+	CostUSD       float64
+	Verification  *usage.Verification
+	StatusEnabled bool
+}
+
+// VerifiedTrigger is implemented only by Codex-backed providers. Automatic
+// requests require fresh, bucket-specific start evidence before sending.
+type VerifiedTrigger interface {
+	TriggerAutomatic(context.Context, float64) (*TriggerResult, error)
 }
 
 // UsageHTTPError preserves usage endpoint HTTP failures so callers can make
