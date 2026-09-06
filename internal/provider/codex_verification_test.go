@@ -35,7 +35,7 @@ func quotaResponse(reset int64) string {
 
 func TestVerifiedPingReadsBeforeAndAfterWithoutWaitingMinute(t *testing.T) {
 	fakeCodexHome(t)
-	fakeCodexCLI(t, `printf '\033]9;done\007'`)
+	fakeCodexCLI(t, "exit 0")
 	old := usageHTTPClient
 	defer func() { usageHTTPClient = old }()
 	reads := 0
@@ -75,34 +75,6 @@ func TestFailedTriggerStillReadsQuotaAfterwards(t *testing.T) {
 	res, err := NewCodex(config.ProviderConfig{}).Trigger(context.Background(), false)
 	if err == nil || reads != 2 || res.Verification == nil {
 		t.Fatal(err, reads, res)
-	}
-}
-
-func TestMarkerAndTimeoutOutcomes(t *testing.T) {
-	for _, tc := range []struct {
-		name, script string
-		success      bool
-	}{
-		{"marker", `printf '\033]9;done\007'`, true},
-		{"clean-no-marker", "exit 0", false},
-		{"timeout", "sleep 1", false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			fakeCodexCLI(t, tc.script)
-			_, err := triggerCodexWithWait(context.Background(), config.ProviderConfig{}, false, 50*time.Millisecond, 20*time.Millisecond)
-			if (err == nil) != tc.success {
-				t.Fatal(err)
-			}
-		})
-	}
-	m := &completionMarker{done: make(chan struct{})}
-	for _, p := range []string{"noise\x1b]", "9;", "done", "\a"} {
-		_, _ = m.Write([]byte(p))
-	}
-	select {
-	case <-m.done:
-	default:
-		t.Fatal("fragmented marker missed")
 	}
 }
 

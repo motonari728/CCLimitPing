@@ -323,7 +323,7 @@ func TestCodexTriggerDryRunUsesInteractiveCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dry-run trigger: %v", err)
 	}
-	want := `codex -c model_reasoning_effort=low -m gpt-5.4-mini --search --sandbox read-only -c tui.notifications=["agent-turn-complete"] -c tui.notification_method="osc9" -c tui.notification_condition="always" ok`
+	want := "codex -c model_reasoning_effort=low -m gpt-5.4-mini --search --sandbox read-only ok"
 	if res.Command != want {
 		t.Fatalf("command = %q, want %q", res.Command, want)
 	}
@@ -346,7 +346,7 @@ func TestSparkTriggerDryRunUsesSparkModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dry-run trigger: %v", err)
 	}
-	want := `codex -c model_reasoning_effort=low -m gpt-5.3-codex-spark -c tui.notifications=["agent-turn-complete"] -c tui.notification_method="osc9" -c tui.notification_condition="always" ok`
+	want := "codex -c model_reasoning_effort=low -m gpt-5.3-codex-spark ok"
 	if res.Command != want {
 		t.Fatalf("command = %q, want %q", res.Command, want)
 	}

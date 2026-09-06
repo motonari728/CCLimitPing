@@ -13,10 +13,12 @@ The command does not wait one minute or start a detached verification process.
 `ping all` continues to the next provider after the ordinary trigger and these
 bounded reads. Explicit `schedule` commands use the same ping behavior.
 
-CLI completion and window start are separate results. A turn-completion OSC 9
-notification confirms completion; a timeout, nonzero exit or clean exit without
-that notification is an error. A confirmed completed turn returns exit zero even
-if the API or state file is unavailable or the window is unconfirmed. A failed
+The existing CLI trigger result and window start are separate results. This
+feature does not change the TUI transport or interpret its completion markers.
+A trigger returning without error is reported as such, not as verified turn
+completion or proof that a window started. It retains exit zero even if the API
+or state file is unavailable or the window is unconfirmed. Trigger errors retain
+their existing nonzero exit behavior. A failed
 pre-read does not prevent an explicit manual ping. Cancellation returns promptly
 without requiring a post-read.
 
@@ -111,5 +113,5 @@ uses the Linux PTY implementation. No Windows PTY replacement is part of this ch
 
 `ping --dry-run` neither fetches quota nor writes state. Watch dry-run retains
 its existing quota reads but does not persist verification or attempt state.
-Offline tests cover observations, claims, budgets, CLI output and fake PTY
-completion; no real quota pings are necessary for these tests.
+Offline tests cover observations, claims, budgets, CLI output and a fake CLI
+trigger; no real quota pings are necessary for these tests.

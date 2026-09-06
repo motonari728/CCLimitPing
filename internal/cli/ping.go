@@ -120,7 +120,11 @@ func report(out io.Writer, text cliText, name string, start time.Time, res *prov
 		fmt.Fprintf(out, text.pingFailedFmt, name, elapsed(start), localizedProviderError(text, err))
 		return
 	}
-	fmt.Fprintf(out, text.pingSuccessFmt, name, elapsed(start), usageSuffix(res))
+	format := text.pingSuccessFmt
+	if res != nil && res.Verification != nil {
+		format = text.pingTriggerReturnedFmt
+	}
+	fmt.Fprintf(out, format, name, elapsed(start), usageSuffix(res))
 }
 
 // usageSuffix renders the token/cost tail, e.g. ", 32,934 tok, $0.0110".
