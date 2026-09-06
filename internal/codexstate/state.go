@@ -102,7 +102,7 @@ func observe(w *window, s Sample, duringAttempt bool) usage.StartStatus {
 			state = NotStarted
 		}
 	}
-	if state == Started {
+	if state == Started && w.ConfirmedReset.IsZero() {
 		w.ConfirmedReset = s.Reset
 	}
 	// During a live claim do not collect evidence that could authorize its retry.

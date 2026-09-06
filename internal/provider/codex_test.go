@@ -477,7 +477,7 @@ func TestCodexAutoRedeemSkipsUntilExpiryAndThenThrottles(t *testing.T) {
 		t.Fatalf("requests = %d, want 0", requests)
 	}
 
-	expiring := &usage.Usage{ResetCredits: &usage.ResetCredits{Credits: []usage.ResetCredit{
+	expiring := &usage.Usage{QuotaAccount: "account-123", ResetCredits: &usage.ResetCredits{Credits: []usage.ResetCredit{
 		{Status: "available", ExpiresAt: time.Now().Add(30 * time.Minute)},
 	}}}
 	if outcome, err := c.AutoRedeemResetCredit(context.Background(), expiring); outcome != RedeemNothingToReset || err != nil {

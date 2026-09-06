@@ -49,8 +49,7 @@ const (
 // via the interactive, TTY-backed Codex CLI. Headless `codex exec` can consume
 // tokens without anchoring the subscription-backed Codex window.
 type Codex struct {
-	cfg  config.ProviderConfig
-	auth *auth.CodexAuth
+	cfg config.ProviderConfig
 
 	redeemMu   sync.Mutex
 	lastRedeem time.Time // last automatic redemption attempt, for the cooldown
@@ -58,8 +57,7 @@ type Codex struct {
 
 func NewCodex(cfg config.ProviderConfig) *Codex {
 	return &Codex{
-		cfg:  cfg,
-		auth: auth.NewCodexAuth(),
+		cfg: cfg,
 	}
 }
 
@@ -97,6 +95,9 @@ func (c *Codex) AutoRedeemResetCredit(ctx context.Context, u *usage.Usage) (stri
 	if !ok {
 		return "", nil
 	}
+	if u.QuotaAccount == "" {
+		return "", fmt.Errorf("automatic reset credit requires an identified quota observation")
+	}
 	c.redeemMu.Lock()
 	if time.Since(c.lastRedeem) < codexRedeemCooldown {
 		c.redeemMu.Unlock()
@@ -104,7 +105,7 @@ func (c *Codex) AutoRedeemResetCredit(ctx context.Context, u *usage.Usage) (stri
 	}
 	c.lastRedeem = time.Now()
 	c.redeemMu.Unlock()
-	return c.consumeResetCredit(ctx, creditIdempotencyKey(credit))
+	return c.consumeResetCreditFor(ctx, creditIdempotencyKey(credit), u.QuotaAccount)
 }
 
 // consumeResetCredit redeems one banked reset credit. The credit id is
@@ -112,6 +113,10 @@ func (c *Codex) AutoRedeemResetCredit(ctx context.Context, u *usage.Usage) (stri
 // same one the policy targets — so we don't depend on an id field this private
 // endpoint doesn't document.
 func (c *Codex) consumeResetCredit(ctx context.Context, idempotencyKey string) (string, error) {
+	return c.consumeResetCreditFor(ctx, idempotencyKey, "")
+}
+
+func (c *Codex) consumeResetCreditFor(ctx context.Context, idempotencyKey, expectedAccount string) (string, error) {
 	payload, err := json.Marshal(map[string]string{"idempotency_key": idempotencyKey})
 	if err != nil {
 		return "", err
@@ -120,6 +125,9 @@ func (c *Codex) consumeResetCredit(ctx context.Context, idempotencyKey string) (
 	accountID := ""
 	body, err := fetchWithAuth(ctx, a, func(token string) (*http.Request, error) {
 		accountID, _ = a.AccountID(ctx)
+		if expectedAccount != "" && accountID != expectedAccount {
+			return nil, fmt.Errorf("Codex account changed; automatic reset credit cancelled")
+		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, codexConsumeURL(), bytes.NewReader(payload))
 		if err != nil {
 			return nil, err
@@ -191,8 +199,7 @@ func creditIdempotencyKey(c usage.ResetCredit) string {
 // Spark is a separate provider backed by Codex auth and CLI transport.
 // Its usage window is the Spark-specific entry inside the Codex usage payload.
 type Spark struct {
-	cfg  config.ProviderConfig
-	auth *auth.CodexAuth
+	cfg config.ProviderConfig
 }
 
 // NewSpark returns the Spark provider. It shares Codex credentials and the
@@ -202,8 +209,7 @@ func NewSpark(cfg config.ProviderConfig) *Spark {
 		cfg.Model = sparkDefaultModel
 	}
 	return &Spark{
-		cfg:  cfg,
-		auth: auth.NewCodexAuth(),
+		cfg: cfg,
 	}
 }
 

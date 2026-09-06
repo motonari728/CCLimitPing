@@ -87,8 +87,10 @@ responses, prompts or model output. New directories/files use private permission
 where supported. Same-directory replacement and short OS-backed file locks
 protect updates; locks are not held across network or model requests.
 
-A live per-bucket attempt claim makes a competing manual ping return promptly
-with an actionable error. Pending verification alone does not block manual use.
+A live per-bucket attempt claim or a contended short state transaction makes a
+competing manual ping return promptly with actionable retry advice. Contention
+does not bypass duplicate protection: another process may be reserving a send.
+Pending verification alone does not block manual use.
 An expired claim requires new observation evidence before automatic retry.
 Missing state starts with unknown evidence. Corrupt/incompatible state or an
 unwritable directory disables automatic sends; explicit manual pings can proceed

@@ -178,6 +178,19 @@ func TestImmediatePreSendReadRetainsSlidingEvidence(t *testing.T) {
 	}
 }
 
+func TestJitterCannotAccumulateIntoSlidingReset(t *testing.T) {
+	w := &window{}
+	reset := epoch.Add(5 * time.Hour)
+	observe(w, Sample{At: epoch, Reset: reset, Seconds: 18000}, false)
+	observe(w, Sample{At: epoch.Add(time.Minute), Reset: reset, Seconds: 18000}, false)
+	for i := 1; i <= 10; i++ {
+		v := observe(w, Sample{At: epoch.Add(time.Minute + time.Duration(i)*time.Second), Reset: reset.Add(time.Duration(i) * time.Second), Seconds: 18000}, false)
+		if i > 5 && v.State == Started {
+			t.Fatal("jitter accumulated beyond original anchor", v)
+		}
+	}
+}
+
 func TestBudgetAndCrashRecovery(t *testing.T) {
 	s := Store{Dir: t.TempDir()}
 	now := epoch
@@ -257,4 +270,54 @@ func TestLockProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	unlock()
+}
+
+func TestLockReleasedAfterProcessCrash(t *testing.T) {
+	if path := os.Getenv("LIMITPING_TEST_CRASH_LOCK"); path != "" {
+		_, err := lock(path)
+		if err != nil {
+			os.Exit(2)
+		}
+		if err := os.WriteFile(path+".ready", []byte("ready"), 0600); err != nil {
+			os.Exit(3)
+		}
+		select {}
+	}
+	path := filepath.Join(t.TempDir(), "crash.lock")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestLockReleasedAfterProcessCrash$")
+	cmd.Env = append(os.Environ(), "LIMITPING_TEST_CRASH_LOCK="+path)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(path + ".ready"); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("child did not acquire lock")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	_ = cmd.Process.Kill()
+	_ = cmd.Wait()
+	unlock, err := lock(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unlock()
+}
+
+func TestAutomaticBudgetsAreBucketSpecific(t *testing.T) {
+	s := Store{Dir: t.TempDir()}
+	if err := s.update("account", "codex", func(b *bucket) error { b.Attempts = []time.Time{epoch, epoch, epoch, epoch}; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	read(t, s, "spark:model", quota(epoch, epoch.Add(5*time.Hour), 0, false))
+	now := epoch.Add(time.Minute)
+	read(t, s, "spark:model", quota(now, now.Add(5*time.Hour), 0, false))
+	if _, err := s.Begin("account", "spark:model", true, now, now); err != nil {
+		t.Fatal("Codex budget blocked Spark", err)
+	}
 }

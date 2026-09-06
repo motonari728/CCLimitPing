@@ -80,6 +80,7 @@ func readVerifiedUsage(ctx context.Context, name string, cfg config.ProviderConf
 		}
 	}
 	u := codexUsageToUsage(name, body, r, rl)
+	u.QuotaAccount = account
 	if r.ResetCredits != nil {
 		u.ResetCredits = &usage.ResetCredits{AvailableCount: r.ResetCredits.AvailableCount}
 	}
@@ -125,6 +126,9 @@ func pingVerified(ctx context.Context, name string, cfg config.ProviderConfig, d
 		warning = pre.Verification.Warning
 	}
 	if automatic && (readErr != nil || warning != "") {
+		if readErr != nil {
+			return nil, fmt.Errorf("automatic pre-ping check unavailable: %w", readErr)
+		}
 		return nil, fmt.Errorf("automatic pre-ping check unavailable: %s", warning)
 	}
 	identity, identityErr := currentCodexAccount(ctx)

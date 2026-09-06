@@ -82,6 +82,7 @@ type Usage struct {
 	FetchedAt    time.Time
 	Raw          []byte        // raw JSON body, for `status -v`
 	Verification *Verification // Codex-backed providers only; not a shared window predicate
+	QuotaAccount string        // identity of the quota request; never part of status JSON
 }
 
 // Verification separates a completed CLI request from an observed quota window.

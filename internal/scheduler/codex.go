@@ -109,10 +109,25 @@ func (s *Scheduler) runVerifiedTarget(ctx context.Context, t Target, p provider.
 			}
 			continue
 		}
+		if err != nil && res == nil {
+			// No trigger occurred: do not manufacture a failed ping-history entry.
+			d := minBackoff
+			var httpErr *provider.UsageHTTPError
+			if errors.As(err, &httpErr) && (!httpErr.RetryAfter.IsZero() || httpErr.StatusCode == 429) {
+				d = usageRateLimitWait(httpErr.RetryAfter, time.Now())
+			}
+			s.log.Printf("[%s] pre-ping check failed: %v; observing again in %s", name, err, d)
+			if !wait("pre-ping check unavailable", d) {
+				return
+			}
+			continue
+		}
 		if err != nil {
 			s.log.Printf("[%s] ping failed: %v; verifying quota before retry", name, err)
+			s.notify(name+": ping failed", "Verifying quota before another attempt")
 		} else {
 			s.log.Printf("[%s] ping request completed; checking window%s", name, triggerCost(res))
+			s.notify(name+": request completed", "Quota window verification is separate from request completion")
 		}
 		if res != nil && res.Verification != nil && res.Verification.Warning != "" {
 			s.log.Printf("[%s] %s", name, res.Verification.Warning)

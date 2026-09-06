@@ -14,6 +14,7 @@ import (
 
 	"github.com/wavever/CCLimitPing/internal/codexstate"
 	"github.com/wavever/CCLimitPing/internal/config"
+	"github.com/wavever/CCLimitPing/internal/usage"
 )
 
 func fakeCodexCLI(t *testing.T, script string) {
@@ -150,5 +151,44 @@ func TestDryRunNeverReadsOrWritesState(t *testing.T) {
 	entries, _ := os.ReadDir(dir)
 	if len(entries) != 0 {
 		t.Fatal(entries)
+	}
+}
+
+func TestAutoRedeemRejectsChangedObservationAccount(t *testing.T) {
+	fakeCodexHome(t)
+	requests := 0
+	useTransport(t, func(req *http.Request) (*http.Response, error) {
+		requests++
+		t.Fatal("must not spend another account's credit")
+		return nil, nil
+	})
+	u := &usage.Usage{QuotaAccount: "previous-account", ResetCredits: &usage.ResetCredits{Credits: []usage.ResetCredit{
+		{Status: "available", ExpiresAt: time.Now().Add(30 * time.Minute)},
+	}}}
+	_, err := NewCodex(config.ProviderConfig{}).AutoRedeemResetCredit(context.Background(), u)
+	if err == nil || requests != 0 {
+		t.Fatal(err, requests)
+	}
+}
+
+func TestAutoRedeemRechecksIdentityOnAuthenticationRetry(t *testing.T) {
+	fakeCodexHome(t)
+	requests := 0
+	useTransport(t, func(req *http.Request) (*http.Response, error) {
+		requests++
+		if requests > 1 {
+			t.Fatal("retried redemption against changed account")
+		}
+		if err := os.WriteFile(filepath.Join(os.Getenv("CODEX_HOME"), "auth.json"), []byte(`{"tokens":{"access_token":"new-token","account_id":"new-account"}}`), 0600); err != nil {
+			t.Fatal(err)
+		}
+		return &http.Response{StatusCode: 401, Body: io.NopCloser(strings.NewReader(`{}`)), Header: make(http.Header)}, nil
+	})
+	u := &usage.Usage{QuotaAccount: "account-123", ResetCredits: &usage.ResetCredits{Credits: []usage.ResetCredit{
+		{Status: "available", ExpiresAt: time.Now().Add(30 * time.Minute)},
+	}}}
+	_, err := NewCodex(config.ProviderConfig{}).AutoRedeemResetCredit(context.Background(), u)
+	if err == nil || requests != 1 {
+		t.Fatal(err, requests)
 	}
 }
