@@ -605,7 +605,9 @@ func triggerCodexWithTiming(ctx context.Context, cfg config.ProviderConfig, dryR
 
 	output := &limitedBuffer{limit: 4096}
 	markers := newCodexTurnMarkers()
+	readDone := make(chan struct{})
 	go func() {
+		defer close(readDone)
 		_, _ = io.Copy(io.MultiWriter(output, markers), ptmx)
 	}()
 
@@ -614,11 +616,22 @@ func triggerCodexWithTiming(ctx context.Context, cfg config.ProviderConfig, dryR
 		done <- cmd.Wait()
 	}()
 
-	if terminal, err := codexAwait(ctx, cmd, ptmx, output, markers.completed, done, timing.maxWait); terminal {
+	terminal, completed, err := codexAwait(ctx, cmd, ptmx, output, markers.completed, readDone, done, timing.maxWait)
+	res.TurnCompleted = completed
+	if terminal {
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		}
 		return res, err
 	}
-
-	return res, codexInteractiveStop(ctx, cmd, ptmx, done, output, timing.exitGrace)
+	stopErr := codexInteractiveStop(ctx, cmd, ptmx, done, output, timing.exitGrace)
+	if ctx.Err() != nil {
+		return res, ctx.Err()
+	}
+	if err != nil {
+		return res, err
+	}
+	return res, stopErr
 }
 
 type codexTurnMarkers struct {
@@ -647,16 +660,33 @@ func (m *codexTurnMarkers) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func codexAwait(ctx context.Context, cmd *exec.Cmd, ptmx *os.File, output *limitedBuffer, completed <-chan struct{}, done <-chan error, maxWait time.Duration) (bool, error) {
+func codexAwait(ctx context.Context, cmd *exec.Cmd, ptmx *os.File, output *limitedBuffer, completed, readDone <-chan struct{}, done <-chan error, maxWait time.Duration) (terminal, turnCompleted bool, err error) {
 	select {
 	case <-completed:
-		return false, nil
+		return false, true, nil
 	case err := <-done:
-		return true, codexInteractiveErr(err, output)
+		// Process exit can win the select before the PTY reader sees its tail.
+		select {
+		case <-readDone:
+		case <-ctx.Done():
+		case <-time.After(100 * time.Millisecond):
+		}
+		select {
+		case <-completed:
+			turnCompleted = true
+		default:
+		}
+		if err != nil {
+			return true, turnCompleted, codexInteractiveErr(err, output)
+		}
+		if !turnCompleted {
+			return true, false, fmt.Errorf("codex exited without a turn-completion notification; completion unconfirmed")
+		}
+		return true, true, nil
 	case <-ctx.Done():
-		return true, codexInteractiveCancel(ctx, cmd, ptmx, done, output)
+		return true, false, codexInteractiveCancel(ctx, cmd, ptmx, done, output)
 	case <-time.After(maxWait):
-		return false, nil
+		return false, false, fmt.Errorf("codex turn-completion notification timed out after %s", maxWait)
 	}
 }
 

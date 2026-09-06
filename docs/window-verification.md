@@ -13,12 +13,18 @@ The command does not wait one minute or start a detached verification process.
 `ping all` continues to the next provider after the ordinary trigger and these
 bounded reads. Explicit `schedule` commands use the same ping behavior.
 
-The existing CLI trigger result and window start are separate results. This
-feature does not change the TUI transport or interpret its completion markers.
-A trigger returning without error is reported as such, not as verified turn
-completion or proof that a window started. It retains exit zero even if the API
-or state file is unavailable or the window is unconfirmed. Trigger errors retain
-their existing nonzero exit behavior. A failed
+CLI turn completion and window start are separate results. The Codex/Spark TUI's
+OSC 9 turn-completion notification provides positive completion evidence. A clean
+exit without that marker is unconfirmed and returns nonzero, as do timeout,
+interruption and trigger errors. Process-exit races allow a bounded PTY-tail drain
+before deciding whether the marker was absent. The notification configuration and
+scanner are shared with the TUI implementation, not reimplemented by quota logic.
+
+A confirmed completed turn retains exit zero even if the API or state file is
+unavailable or the window is unconfirmed. Human output and background history
+describe turn completion separately from quota start; a timeout remains a failed
+CLI attempt even if a later API observation finds a started window. These rules
+do not change Claude's result handling. A failed
 pre-read does not prevent an explicit manual ping. Cancellation returns promptly
 without requiring a post-read.
 

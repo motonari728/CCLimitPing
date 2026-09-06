@@ -138,8 +138,13 @@ func (s *Scheduler) runVerifiedTarget(ctx context.Context, t Target, p provider.
 			s.log.Printf("[%s] ping failed: %v; verifying quota before retry", name, err)
 			s.notify(name+": ping failed", "Verifying quota before another attempt")
 		} else {
-			s.log.Printf("[%s] ping trigger returned; checking window%s", name, triggerCost(res))
-			s.notify(name+": CLI trigger returned", "Turn completion is unverified; checking quota separately")
+			if res != nil && res.TurnCompleted {
+				s.log.Printf("[%s] ping turn completed; checking window%s", name, triggerCost(res))
+				s.notify(name+": turn completed", "Quota window start is checked separately")
+			} else {
+				s.log.Printf("[%s] ping trigger returned; checking window%s", name, triggerCost(res))
+				s.notify(name+": CLI trigger returned", "Turn completion is unverified; checking quota separately")
+			}
 		}
 		if res != nil && res.Verification != nil && res.Verification.Warning != "" {
 			s.log.Printf("[%s] %s", name, res.Verification.Warning)

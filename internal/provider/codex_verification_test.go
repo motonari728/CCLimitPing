@@ -35,7 +35,7 @@ func quotaResponse(reset int64) string {
 
 func TestVerifiedPingReadsBeforeAndAfterWithoutWaitingMinute(t *testing.T) {
 	fakeCodexHome(t)
-	fakeCodexCLI(t, "exit 0")
+	fakeCodexCLI(t, `printf '\033]9;done\007'`)
 	old := usageHTTPClient
 	defer func() { usageHTTPClient = old }()
 	reads := 0
@@ -53,6 +53,9 @@ func TestVerifiedPingReadsBeforeAndAfterWithoutWaitingMinute(t *testing.T) {
 	}
 	if reads != 2 {
 		t.Fatalf("reads=%d", reads)
+	}
+	if !res.TurnCompleted {
+		t.Fatal("missing completion evidence")
 	}
 	if time.Since(start) > 5*time.Second {
 		t.Fatal("manual ping blocked")

@@ -123,6 +123,9 @@ func report(out io.Writer, text cliText, name string, start time.Time, res *prov
 	format := text.pingSuccessFmt
 	if res != nil && res.Verification != nil {
 		format = text.pingTriggerReturnedFmt
+		if res.TurnCompleted {
+			format = text.pingTurnCompletedFmt
+		}
 	}
 	fmt.Fprintf(out, format, name, elapsed(start), usageSuffix(res))
 }

@@ -87,6 +87,7 @@ type ResetCreditRedeemer interface {
 // consumed (parsed from the CLI's machine-readable output). CostUSD is 0 when
 // the provider doesn't report a cost (e.g. Codex).
 type TriggerResult struct {
+	TurnCompleted bool // positive completion evidence; an error-free exit alone is insufficient
 	Command       string
 	HasUsage      bool
 	InputTokens   int

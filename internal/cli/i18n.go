@@ -71,6 +71,7 @@ type cliText struct {
 	pingFailedFmt          string // provider, elapsed, error
 	pingSuccessFmt         string // provider, elapsed, usage suffix
 	pingTriggerReturnedFmt string
+	pingTurnCompletedFmt   string
 
 	watchShort             string
 	watchLong              string
@@ -293,6 +294,7 @@ Examples:
 	pingFailedFmt:          "%-7s ✗ failed after %s: %v\n",
 	pingSuccessFmt:         "%-7s ✓ pinged (%s%s)\n",
 	pingTriggerReturnedFmt: "%-7s CLI trigger returned without error (%s%s); turn completion is not verified\n",
+	pingTurnCompletedFmt:   "%-7s ✓ turn completed (%s%s); quota start is checked separately\n",
 
 	watchShort: "Run the foreground daemon and ping each provider when its 5h window resets",
 	watchLong: `Run the foreground daemon. When a provider's 5h window resets, limitping sends the minimal message to start the next window.
@@ -561,6 +563,7 @@ var zhText = cliText{
 	pingFailedFmt:          "%-7s ✗ 失败 (耗时 %s): %v\n",
 	pingSuccessFmt:         "%-7s ✓ 已 ping (%s%s)\n",
 	pingTriggerReturnedFmt: "%-7s CLI 触发已返回且未报错（%s%s）；尚未验证轮次完成\n",
+	pingTurnCompletedFmt:   "%-7s ✓ 轮次已完成（%s%s）；限额窗口启动单独检查\n",
 
 	watchShort: "以前台守护方式运行，并在每个 Provider 的 5h 窗口重置时自动 ping",
 	watchLong: `以前台守护方式运行。某个 Provider 的 5h 窗口重置后，limitping 会发送最小消息来开启下一个窗口。

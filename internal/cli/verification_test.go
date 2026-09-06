@@ -60,6 +60,7 @@ func TestBackgroundVerificationDoesNotCountAsPing(t *testing.T) {
 	}{
 		{"ping request completed; checking window", true},
 		{"ping trigger returned; checking window", true},
+		{"ping turn completed; checking window", true},
 		{"window started after verification", false},
 		{"quota read failed: timeout", false},
 		{"ping failed: notification timeout; verifying quota before retry", true},
@@ -79,6 +80,20 @@ func TestReturnedTriggerDoesNotClaimTurnCompletion(t *testing.T) {
 	}, nil)
 	if !strings.Contains(out.String(), "CLI trigger returned without error") ||
 		!strings.Contains(out.String(), "turn completion is not verified") {
+		t.Fatal(out.String())
+	}
+}
+
+func TestConfirmedTurnDoesNotClaimWindowStarted(t *testing.T) {
+	var out bytes.Buffer
+	report(&out, enText, "codex", time.Now(), &provider.TriggerResult{
+		TurnCompleted: true,
+		Verification:  &usage.Verification{Target: "weekly", Weekly: usage.StartStatus{State: "unknown"}},
+	}, nil)
+	if !strings.Contains(out.String(), "turn completed") || !strings.Contains(out.String(), "window start unconfirmed") {
+		t.Fatal(out.String())
+	}
+	if strings.Contains(out.String(), "window started") {
 		t.Fatal(out.String())
 	}
 }

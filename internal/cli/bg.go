@@ -390,6 +390,8 @@ func parseBgPingAttempt(line string) (bgPingAttempt, bool) {
 		status = bgPingSucceeded
 	case strings.Contains(msg, "ping trigger returned; checking window"):
 		status = bgPingSucceeded
+	case strings.Contains(msg, "ping turn completed; checking window"):
+		status = bgPingSucceeded
 	default:
 		return bgPingAttempt{}, false
 	}
