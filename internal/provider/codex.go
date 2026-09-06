@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 	"unicode"
 
@@ -691,6 +693,12 @@ func codexAwait(ctx context.Context, cmd *exec.Cmd, ptmx *os.File, output *limit
 }
 
 func codexInteractiveStop(ctx context.Context, cmd *exec.Cmd, ptmx *os.File, done <-chan error, output *limitedBuffer, exitGrace time.Duration) error {
+	// Preserve an exit already observed before requesting intentional shutdown.
+	select {
+	case err := <-done:
+		return codexInteractiveErr(err, output)
+	default:
+	}
 	deadline := time.After(exitGrace)
 	ticker := time.NewTicker(exitGrace / 2)
 	defer ticker.Stop()
@@ -701,23 +709,45 @@ func codexInteractiveStop(ctx context.Context, cmd *exec.Cmd, ptmx *os.File, don
 			sent = true
 		}
 		select {
-		case <-done:
-			return nil
+		case err := <-done:
+			return codexShutdownErr(err, output)
 		case <-ctx.Done():
 			return codexInteractiveCancel(ctx, cmd, ptmx, done, output)
 		case <-ticker.C:
 			_, _ = ptmx.Write([]byte{0x03})
 		case <-deadline:
+			killed := false
 			if cmd.Process != nil {
-				_ = cmd.Process.Kill()
+				killed = cmd.Process.Kill() == nil
 			}
 			select {
-			case <-done:
+			case err := <-done:
+				var exitErr *exec.ExitError
+				if killed && errors.As(err, &exitErr) {
+					if status, ok := exitErr.Sys().(syscall.WaitStatus); ok && status.Signaled() && status.Signal() == syscall.SIGKILL {
+						return nil
+					}
+				}
+				return codexShutdownErr(err, output)
 			case <-time.After(time.Second):
 			}
 			return nil
 		}
 	}
+}
+
+func codexShutdownErr(err error, output *limitedBuffer) error {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		// Ctrl-C is expected after completion; other failures remain failures.
+		if exitErr.ExitCode() == 130 {
+			return nil
+		}
+		if status, ok := exitErr.Sys().(syscall.WaitStatus); ok && status.Signaled() && status.Signal() == syscall.SIGINT {
+			return nil
+		}
+	}
+	return codexInteractiveErr(err, output)
 }
 
 func codexInteractiveErr(err error, output *limitedBuffer) error {

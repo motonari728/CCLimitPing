@@ -27,8 +27,8 @@ after the terminal closes.
 
 ```
 claude  ✓ pinged (6.6s)
-codex   ✓ pinged (13.6s)
-spark   ✓ pinged (12.4s)
+codex   ✓ turn completed (13.6s); quota start is checked separately
+spark   ✓ turn completed (12.4s); quota start is checked separately
 ```
 
 ## Highlights
@@ -231,20 +231,21 @@ Short aliases are also available for config commands: `limitping c i` for
 `ping` shows the exact command and a live timer (a spinner on a terminal).
 Current Claude/Codex/Spark interactive trigger sessions do not expose reliable
 machine-readable per-ping token or cost data, so success output normally shows
-elapsed time only:
+elapsed time. Codex/Spark report turn completion separately from quota-window
+verification (verification lines omitted here):
 
 ```
 claude  → claude --model haiku .
 claude  ✓ pinged (6.6s)
 codex   → codex -c model_reasoning_effort=low -m gpt-5.6-luna -c tui.notifications=["agent-turn-complete"] -c tui.notification_method="osc9" -c tui.notification_condition="always" ok
-codex   ✓ pinged (6.8s)
+codex   ✓ turn completed (6.8s); quota start is checked separately
 spark   → codex -c model_reasoning_effort=low -m gpt-5.3-codex-spark -c tui.notifications=["agent-turn-complete"] -c tui.notification_method="osc9" -c tui.notification_condition="always" ok
-spark   ✓ pinged (6.5s)
+spark   ✓ turn completed (6.5s); quota start is checked separately
 ```
 
 For Codex/Spark, `limitping` automatically appends the `-c tui...` flags to
-enable Codex CLI's turn-completion notifications, so it can detect ping success
-and exit immediately.
+enable Codex CLI's turn-completion notifications, so it can detect turn completion
+and exit immediately. The quota API separately verifies window activation.
 
 Use `status` or `bg status` for the authoritative 5h/weekly window view after a
 ping.

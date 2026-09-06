@@ -27,8 +27,8 @@ Claude Code、Codex 和 Spark 的订阅限额按 **5 小时滚动窗口**(外加
 
 ```
 claude  ✓ pinged (6.6s)
-codex   ✓ pinged (13.6s)
-spark   ✓ pinged (12.4s)
+codex   ✓ turn completed (13.6s); quota start is checked separately
+spark   ✓ turn completed (12.4s); quota start is checked separately
 ```
 
 ## 亮点
@@ -212,18 +212,18 @@ limitping uninstall            # 删除 limitping 以及配置/缓存(简称: rm
 | `uninstall` | `rm`、`remove` |
 
 `ping` 会显示具体命令和实时计时(终端下是 spinner)。当前 Claude/Codex/Spark 都用交互式
-触发,CLI 不提供可靠的逐次 machine-readable token/费用数据,所以成功输出通常只显示耗时:
+触发,CLI 不提供可靠的逐次 machine-readable token/费用数据,所以输出会显示耗时。Codex/Spark 会区分轮次完成和限额窗口启动确认（此处省略窗口确认行）:
 
 ```
 claude  → claude --model haiku .
 claude  ✓ pinged (6.6s)
 codex   → codex -c model_reasoning_effort=low -m gpt-5.6-luna -c tui.notifications=["agent-turn-complete"] -c tui.notification_method="osc9" -c tui.notification_condition="always" ok
-codex   ✓ pinged (6.8s)
+codex   ✓ turn completed (6.8s); quota start is checked separately
 spark   → codex -c model_reasoning_effort=low -m gpt-5.3-codex-spark -c tui.notifications=["agent-turn-complete"] -c tui.notification_method="osc9" -c tui.notification_condition="always" ok
-spark   ✓ pinged (6.5s)
+spark   ✓ turn completed (6.5s); quota start is checked separately
 ```
 
-对于 Codex/Spark，`limitping` 会自动追加 `-c tui...` 参数以启用 Codex CLI 的 turn 结束通知，从而检测 ping 成功并立即退出。
+对于 Codex/Spark，`limitping` 会自动追加 `-c tui...` 参数以启用 Codex CLI 的 turn 结束通知，从而检测轮次完成并立即退出。限额窗口是否启动由限额 API 单独确认。
 
 ping 后请用 `status` 或 `bg status` 查看权威的 5h/周窗口状态。
 

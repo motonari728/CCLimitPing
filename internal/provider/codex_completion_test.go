@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +18,7 @@ func TestCodexCompletionOutcomes(t *testing.T) {
 		{"completed", `printf '\033]9;done\007'`, "", true},
 		{"clean-without-marker", "exit 0", "completion unconfirmed", false},
 		{"process-error", "exit 1", "interactive failed", false},
+		{"completed-process-error", `printf '\033]9;done\007'; exit 1`, "interactive failed", true},
 		{"timeout", "exec sleep 5", "timed out", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -32,6 +34,48 @@ func TestCodexCompletionOutcomes(t *testing.T) {
 				}
 			} else if err == nil || !strings.Contains(err.Error(), tc.wantError) {
 				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestCodexCompletionAndFailureReadyTogether(t *testing.T) {
+	exitErr := exec.Command("sh", "-c", "exit 1").Run()
+	if exitErr == nil {
+		t.Fatal("expected subprocess failure")
+	}
+	for i := 0; i < 100; i++ {
+		completed, readDone := make(chan struct{}), make(chan struct{})
+		close(completed)
+		close(readDone)
+		done := make(chan error, 1)
+		done <- exitErr
+		output := &limitedBuffer{limit: 4096}
+		terminal, confirmed, err := codexAwait(context.Background(), nil, nil, output, completed, readDone, done, time.Second)
+		if !terminal {
+			err = codexInteractiveStop(context.Background(), nil, nil, done, output, time.Second)
+		}
+		if !confirmed || err == nil || !strings.Contains(err.Error(), "interactive failed") {
+			t.Fatal(terminal, confirmed, err)
+		}
+	}
+}
+
+func TestCodexShutdownExitStatus(t *testing.T) {
+	for _, tc := range []struct {
+		script string
+		failed bool
+	}{
+		{"exit 0", false},
+		{"exit 1", true},
+		{"exit 130", false},
+		{"kill -INT $$", false},
+		{"kill -TERM $$", true},
+	} {
+		t.Run(tc.script, func(t *testing.T) {
+			err := exec.Command("sh", "-c", tc.script).Run()
+			if got := codexShutdownErr(err, &limitedBuffer{limit: 4096}); (got != nil) != tc.failed {
+				t.Fatal(got)
 			}
 		})
 	}
