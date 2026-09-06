@@ -281,7 +281,9 @@ func TestLockReleasedAfterProcessCrash(t *testing.T) {
 		if err := os.WriteFile(path+".ready", []byte("ready"), 0600); err != nil {
 			os.Exit(3)
 		}
-		select {}
+		for {
+			time.Sleep(time.Hour)
+		}
 	}
 	path := filepath.Join(t.TempDir(), "crash.lock")
 	cmd := exec.Command(os.Args[0], "-test.run=^TestLockReleasedAfterProcessCrash$")
