@@ -7,9 +7,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wavever/CCLimitPing/internal/codexstate"
 	"github.com/wavever/CCLimitPing/internal/provider"
 	"github.com/wavever/CCLimitPing/internal/usage"
 )
+
+func TestBusyPingOutputSuggestsRetry(t *testing.T) {
+	var out bytes.Buffer
+	report(&out, enText, "codex", time.Now(), nil, fmt.Errorf("ping not sent: %w", codexstate.ErrBusy))
+	want := "ping not sent: another ping or quota-state update is in progress.\nPlease try again in about a minute."
+	if got := out.String(); !strings.Contains(got, want) || strings.Contains(got, "✓") {
+		t.Fatal(got)
+	}
+}
 
 func TestPrecheckFailureOutputSaysNotSent(t *testing.T) {
 	var out bytes.Buffer

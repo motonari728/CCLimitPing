@@ -24,7 +24,7 @@ const (
 	tolerance     = 5 * time.Second
 )
 
-var ErrBusy = errors.New("another ping or state update is running; try again shortly")
+var ErrBusy = errors.New("another ping or quota-state update is in progress.\nPlease try again in about a minute.")
 var ErrDeferred = errors.New("automatic ping deferred; quota verification or cooldown is pending")
 
 type Sample struct {
