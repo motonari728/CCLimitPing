@@ -27,8 +27,8 @@ after the terminal closes.
 
 ```
 claude  ✓ pinged (6.6s)
-codex   ✓ pinged (13.6s)
-spark   ✓ pinged (12.4s)
+codex   CLI trigger returned without error (13.6s); turn completion is not verified
+spark   CLI trigger returned without error (12.4s); turn completion is not verified
 ```
 
 ## Highlights
@@ -76,11 +76,6 @@ provider quota: `limitping ping --dry-run`, `limitping watch --dry-run`, or
 
 ## How it works
 
-Codex/Spark distinguish CLI completion from quota-window start, including 0%
-usage windows. Manual pings return without waiting a minute; watch performs
-follow-up observations and bounded recovery. See [window verification](docs/window-verification.md)
-for status/JSON semantics, state files, retry limits and platform limitations.
-
 Two cleanly separated jobs:
 
 | Job | Mechanism | Cost |
@@ -116,6 +111,20 @@ and pings as soon as the window resets.
 
 Claude/Codex tokens are reused from the official tools (no separate login) and
 refreshed on 401. Spark reuses the Codex token.
+
+### Codex/Spark window verification
+
+At 0% usage, one quota API response cannot always tell whether a window has started.
+For example, compare these five-hour reset times:
+
+| Pattern (both show 0% used) | Read at 10:00 | Read at 10:01 |
+| --- | --- | --- |
+| Started: reset stays fixed | 15:00 | 15:00 |
+| Not started: reset slides forward | 15:00 | 15:01 |
+
+To distinguish these patterns, limitping compares reads at least one minute apart.
+Inconclusive results stay unconfirmed. `ping` returns without waiting that minute
+and suggests a later `status` check; `watch`/`bg` rechecks automatically.
 
 ## Install
 
@@ -237,9 +246,9 @@ elapsed time only:
 claude  → claude --model haiku .
 claude  ✓ pinged (6.6s)
 codex   → codex -c model_reasoning_effort=low -m gpt-5.4-mini ok
-codex   ✓ pinged (13.6s)
+codex   CLI trigger returned without error (13.6s); turn completion is not verified
 spark   → codex -c model_reasoning_effort=low -m gpt-5.3-codex-spark ok
-spark   ✓ pinged (12.4s)
+spark   CLI trigger returned without error (12.4s); turn completion is not verified
 ```
 
 Use `status` or `bg status` for the authoritative 5h/weekly window view after a
