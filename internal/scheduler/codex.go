@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/wavever/CCLimitPing/internal/codexstate"
@@ -146,10 +147,16 @@ func (s *Scheduler) runVerifiedTarget(ctx context.Context, t Target, p provider.
 		prechecks = quotaRetry{}
 		if err != nil {
 			s.log.Printf("[%s] ping failed: %v; verifying quota before retry", name, err)
+			s.logCodexStartupHint(name, res, err)
 			s.notify(name+": ping failed", "Verifying quota before another attempt")
 		} else {
-			s.log.Printf("[%s] ping trigger returned; checking window%s", name, triggerCost(res))
-			s.notify(name+": CLI trigger returned", "Turn completion is unverified; checking quota separately")
+			if res != nil && res.TurnCompleted {
+				s.log.Printf("[%s] ping turn completed; checking window%s", name, triggerCost(res))
+				s.notify(name+": turn completed", "Quota window start is checked separately")
+			} else {
+				s.log.Printf("[%s] ping trigger returned; checking window%s", name, triggerCost(res))
+				s.notify(name+": CLI trigger returned", "Turn completion is unverified; checking quota separately")
+			}
 		}
 		if res != nil && res.Verification != nil && res.Verification.Warning != "" {
 			s.log.Printf("[%s] %s", name, res.Verification.Warning)
@@ -161,6 +168,19 @@ func (s *Scheduler) runVerifiedTarget(ctx context.Context, t Target, p provider.
 		if !wait("verifying quota", delay) {
 			return
 		}
+	}
+}
+
+func (s *Scheduler) logCodexStartupHint(name string, res *provider.TriggerResult, err error) {
+	var completionErr *provider.CodexCompletionError
+	if !errors.As(err, &completionErr) || res == nil {
+		return
+	}
+	s.log.Printf("[%s] Hint: Codex may be waiting for a startup confirmation. Run this command in a terminal and check for confirmation dialogs: %s", name, res.Command)
+	if home := os.Getenv("CODEX_HOME"); home != "" {
+		s.log.Printf("[%s] Use the same CODEX_HOME=%q as this watcher.", name, home)
+	} else {
+		s.log.Printf("[%s] CODEX_HOME is unset for this watcher (defaults to ~/.codex). Use the same setting.", name)
 	}
 }
 

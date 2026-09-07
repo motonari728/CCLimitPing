@@ -23,8 +23,8 @@ Claude Code、Codex 和 Spark 的订阅限额按 **5 小时滚动窗口**(外加
 
 ```
 claude  ✓ pinged (6.6s)
-codex   CLI trigger returned without error (13.6s); turn completion is not verified
-spark   CLI trigger returned without error (12.4s); turn completion is not verified
+codex   ✓ turn completed (13.6s); quota start is checked separately
+spark   ✓ turn completed (12.4s); quota start is checked separately
 ```
 
 ## 亮点
@@ -227,19 +227,21 @@ limitping uninstall            # 删除 limitping 以及配置/缓存(简称: rm
 | `uninstall` | `rm`、`remove` |
 
 `ping` 会显示具体命令和实时计时(终端下是 spinner)。当前 Claude/Codex/Spark 都用交互式
-触发,CLI 不提供可靠的逐次 machine-readable token/费用数据,所以成功输出通常只显示耗时:
+触发,CLI 不提供可靠的逐次 machine-readable token/费用数据,所以输出会显示耗时。Codex/Spark 会区分轮次完成和限额窗口启动确认（此处省略窗口确认行）:
 
 ```
 claude  → claude --model haiku .
 claude  ✓ pinged (6.6s)
 codex   → codex -c model_reasoning_effort=low -m gpt-5.6-luna -c tui.notifications=["agent-turn-complete"] -c tui.notification_method="osc9" -c tui.notification_condition="always" ok
-codex   CLI trigger returned without error (6.8s); turn completion is not verified
+codex   ✓ turn completed (6.8s); quota start is checked separately
 spark   → codex -c model_reasoning_effort=low -m gpt-5.3-codex-spark -c tui.notifications=["agent-turn-complete"] -c tui.notification_method="osc9" -c tui.notification_condition="always" ok
-spark   CLI trigger returned without error (6.5s); turn completion is not verified
+spark   ✓ turn completed (6.5s); quota start is checked separately
 ```
 
 对于 Codex/Spark，`limitping` 会自动追加 `-c tui...` 参数，收到轮次完成通知后停止 TUI。
 仍保留 45 秒安全超时；这不代表已确认限额窗口启动。
+未收到完成通知时，即使进程正常退出，也会返回非零退出码；超时及进程错误同样按失败处理。
+完成通知超时或正常退出但未收到通知时，会提示使用相同的 `CODEX_HOME` 在终端重跑命令，检查启动确认对话框。监视器日志还会记录命令和 `CODEX_HOME` 设置。
 
 ping 后请用 `status` 或 `bg status` 查看权威的 5h/周窗口状态。
 

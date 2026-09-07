@@ -83,10 +83,16 @@ type ResetCreditRedeemer interface {
 	AutoRedeemResetCredit(ctx context.Context, u *usage.Usage) (outcome string, err error)
 }
 
+// CodexCompletionError means the TUI ended or timed out without completion evidence.
+type CodexCompletionError struct{ Reason string }
+
+func (e *CodexCompletionError) Error() string { return e.Reason }
+
 // TriggerResult reports what a Trigger did, including the token usage the ping
 // consumed (parsed from the CLI's machine-readable output). CostUSD is 0 when
 // the provider doesn't report a cost (e.g. Codex).
 type TriggerResult struct {
+	TurnCompleted   bool // positive completion evidence; an error-free exit alone is insufficient
 	Command         string
 	HasUsage        bool
 	InputTokens     int

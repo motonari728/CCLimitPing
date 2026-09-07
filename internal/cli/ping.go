@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -118,11 +119,18 @@ func report(out io.Writer, text cliText, name string, start time.Time, res *prov
 	defer reportVerification(out, text, res)
 	if err != nil {
 		fmt.Fprintf(out, text.pingFailedFmt, name, elapsed(start), localizedProviderError(text, err))
+		var completionErr *provider.CodexCompletionError
+		if errors.As(err, &completionErr) {
+			fmt.Fprintln(out, text.pingStartupHint)
+		}
 		return
 	}
 	format := text.pingSuccessFmt
 	if res != nil && res.Verification != nil {
 		format = text.pingTriggerReturnedFmt
+		if res.TurnCompleted {
+			format = text.pingTurnCompletedFmt
+		}
 	}
 	fmt.Fprintf(out, format, name, elapsed(start), usageSuffix(res))
 }

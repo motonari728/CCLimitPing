@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 	"unicode"
 
@@ -610,7 +612,9 @@ func triggerCodexWithTiming(ctx context.Context, cfg config.ProviderConfig, dryR
 
 	output := &limitedBuffer{limit: 4096}
 	markers := newCodexTurnMarkers()
+	readDone := make(chan struct{})
 	go func() {
+		defer close(readDone)
 		_, _ = io.Copy(io.MultiWriter(output, markers), ptmx)
 	}()
 
@@ -619,11 +623,22 @@ func triggerCodexWithTiming(ctx context.Context, cfg config.ProviderConfig, dryR
 		done <- cmd.Wait()
 	}()
 
-	if terminal, err := codexAwait(ctx, cmd, ptmx, output, markers.completed, done, timing.maxWait); terminal {
+	terminal, completed, err := codexAwait(ctx, cmd, ptmx, output, markers.completed, readDone, done, timing.maxWait)
+	res.TurnCompleted = completed
+	if terminal {
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		}
 		return res, err
 	}
-
-	return res, codexInteractiveStop(ctx, cmd, ptmx, done, output, timing.exitGrace)
+	stopErr := codexInteractiveStop(ctx, cmd, ptmx, done, output, timing.exitGrace)
+	if ctx.Err() != nil {
+		return res, ctx.Err()
+	}
+	if err != nil {
+		return res, err
+	}
+	return res, stopErr
 }
 
 type codexTurnMarkers struct {
@@ -652,20 +667,43 @@ func (m *codexTurnMarkers) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func codexAwait(ctx context.Context, cmd *exec.Cmd, ptmx *os.File, output *limitedBuffer, completed <-chan struct{}, done <-chan error, maxWait time.Duration) (bool, error) {
+func codexAwait(ctx context.Context, cmd *exec.Cmd, ptmx *os.File, output *limitedBuffer, completed, readDone <-chan struct{}, done <-chan error, maxWait time.Duration) (terminal, turnCompleted bool, err error) {
 	select {
 	case <-completed:
-		return false, nil
+		return false, true, nil
 	case err := <-done:
-		return true, codexInteractiveErr(err, output)
+		// Process exit can win the select before the PTY reader sees its tail.
+		select {
+		case <-readDone:
+		case <-ctx.Done():
+		case <-time.After(100 * time.Millisecond):
+		}
+		select {
+		case <-completed:
+			turnCompleted = true
+		default:
+		}
+		if err != nil {
+			return true, turnCompleted, codexInteractiveErr(err, output)
+		}
+		if !turnCompleted {
+			return true, false, &CodexCompletionError{Reason: "codex exited without a turn-completion notification; completion unconfirmed"}
+		}
+		return true, true, nil
 	case <-ctx.Done():
-		return true, codexInteractiveCancel(ctx, cmd, ptmx, done, output)
+		return true, false, codexInteractiveCancel(ctx, cmd, ptmx, done, output)
 	case <-time.After(maxWait):
-		return false, nil
+		return false, false, &CodexCompletionError{Reason: fmt.Sprintf("codex turn-completion notification timed out after %s", maxWait)}
 	}
 }
 
 func codexInteractiveStop(ctx context.Context, cmd *exec.Cmd, ptmx *os.File, done <-chan error, output *limitedBuffer, exitGrace time.Duration) error {
+	// Preserve an exit already observed before requesting intentional shutdown.
+	select {
+	case err := <-done:
+		return codexInteractiveErr(err, output)
+	default:
+	}
 	deadline := time.After(exitGrace)
 	ticker := time.NewTicker(exitGrace / 2)
 	defer ticker.Stop()
@@ -676,23 +714,45 @@ func codexInteractiveStop(ctx context.Context, cmd *exec.Cmd, ptmx *os.File, don
 			sent = true
 		}
 		select {
-		case <-done:
-			return nil
+		case err := <-done:
+			return codexShutdownErr(err, output)
 		case <-ctx.Done():
 			return codexInteractiveCancel(ctx, cmd, ptmx, done, output)
 		case <-ticker.C:
 			_, _ = ptmx.Write([]byte{0x03})
 		case <-deadline:
+			killed := false
 			if cmd.Process != nil {
-				_ = cmd.Process.Kill()
+				killed = cmd.Process.Kill() == nil
 			}
 			select {
-			case <-done:
+			case err := <-done:
+				var exitErr *exec.ExitError
+				if killed && errors.As(err, &exitErr) {
+					if status, ok := exitErr.Sys().(syscall.WaitStatus); ok && status.Signaled() && status.Signal() == syscall.SIGKILL {
+						return nil
+					}
+				}
+				return codexShutdownErr(err, output)
 			case <-time.After(time.Second):
 			}
 			return nil
 		}
 	}
+}
+
+func codexShutdownErr(err error, output *limitedBuffer) error {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		// Ctrl-C is expected after completion; other failures remain failures.
+		if exitErr.ExitCode() == 130 {
+			return nil
+		}
+		if status, ok := exitErr.Sys().(syscall.WaitStatus); ok && status.Signaled() && status.Signal() == syscall.SIGINT {
+			return nil
+		}
+	}
+	return codexInteractiveErr(err, output)
 }
 
 func codexInteractiveErr(err error, output *limitedBuffer) error {

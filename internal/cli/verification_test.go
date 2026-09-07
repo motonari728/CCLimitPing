@@ -21,6 +21,35 @@ func TestBusyPingOutputSuggestsRetry(t *testing.T) {
 	}
 }
 
+func TestPingStartupHint(t *testing.T) {
+	for _, text := range []cliText{enText, zhText} {
+		for _, name := range []string{"codex", "spark"} {
+			for _, tc := range []struct {
+				err  error
+				hint bool
+			}{
+				{fmt.Errorf("wrapped: %w", &provider.CodexCompletionError{Reason: "completion unconfirmed"}), true},
+				{&provider.UsageHTTPError{StatusCode: 401}, false},
+				{fmt.Errorf("process failed"), false},
+				{codexstate.ErrBusy, false},
+			} {
+				var out bytes.Buffer
+				res := &provider.TriggerResult{Verification: &usage.Verification{
+					Target: "weekly", Weekly: usage.StartStatus{State: "started"},
+				}}
+				report(&out, text, name, time.Now(), res, tc.err)
+				got := out.String()
+				if strings.Contains(got, text.pingStartupHint) != tc.hint {
+					t.Fatal(got)
+				}
+				if tc.hint && strings.Index(got, text.pingStartupHint) > strings.Index(got, fmt.Sprintf(text.verifyQuotaStateFmt, "weekly", text.verifyStarted)) {
+					t.Fatal(got)
+				}
+			}
+		}
+	}
+}
+
 func TestPrecheckFailureOutputSaysNotSent(t *testing.T) {
 	var out bytes.Buffer
 	err := fmt.Errorf("ping not sent: quota precheck failed: %w", &provider.UsageHTTPError{StatusCode: 403})
@@ -80,6 +109,7 @@ func TestBackgroundVerificationDoesNotCountAsPing(t *testing.T) {
 	}{
 		{"ping request completed; checking window", false},
 		{"ping trigger returned; checking window", true},
+		{"ping turn completed; checking window", true},
 		{"window started after verification", false},
 		{"quota read failed: timeout", false},
 		{"ping failed: notification timeout; verifying quota before retry", true},
@@ -99,6 +129,20 @@ func TestReturnedTriggerDoesNotClaimTurnCompletion(t *testing.T) {
 	}, nil)
 	if !strings.Contains(out.String(), "CLI trigger returned without error") ||
 		!strings.Contains(out.String(), "turn completion is not verified") {
+		t.Fatal(out.String())
+	}
+}
+
+func TestConfirmedTurnDoesNotClaimWindowStarted(t *testing.T) {
+	var out bytes.Buffer
+	report(&out, enText, "codex", time.Now(), &provider.TriggerResult{
+		TurnCompleted: true,
+		Verification:  &usage.Verification{Target: "weekly", Weekly: usage.StartStatus{State: "unknown"}},
+	}, nil)
+	if !strings.Contains(out.String(), "turn completed") || !strings.Contains(out.String(), "window start unconfirmed") {
+		t.Fatal(out.String())
+	}
+	if strings.Contains(out.String(), "window started") {
 		t.Fatal(out.String())
 	}
 }
