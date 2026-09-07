@@ -132,6 +132,38 @@ func TestVerifiedSchedulerGates(t *testing.T) {
 	}
 }
 
+func TestVerifiedWeeklyExhaustionPolling(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		reset time.Time
+		want  time.Duration
+	}{
+		{"missing-reset", time.Time{}, time.Minute},
+		{"stale-reset", time.Now().Add(-time.Minute), time.Minute},
+		{"near-reset", time.Now().Add(30 * time.Second), 30 * time.Second},
+		{"distant-reset", time.Now().Add(time.Hour), 5 * time.Minute},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &verifiedStub{stubProvider: stubProvider{usage: &usage.Usage{
+				Weekly: usage.Window{UsedPercent: 100, ResetsAt: tc.reset},
+			}}}
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+			defer cancel()
+			s := New(testConfig(), []Target{{Provider: p}}, false, false, io.Discard)
+			s.live.enabled = true
+			start := time.Now()
+			s.runVerifiedTarget(ctx, Target{Provider: p}, p)
+			item := s.live.items[p.Name()]
+			if item.state != "weekly limit reached" || item.deadline.Sub(start.Add(tc.want)).Abs() > time.Second {
+				t.Fatalf("next read: %+v, want delay %s", item, tc.want)
+			}
+			if reads, sends := p.counts(); reads != 1 || sends != 0 {
+				t.Fatalf("reads=%d sends=%d", reads, sends)
+			}
+		})
+	}
+}
+
 func TestVerifiedSchedulerHonorsResetBuffer(t *testing.T) {
 	for _, tc := range []struct {
 		name          string
