@@ -4,10 +4,6 @@
 
 # CCLimitPing (`limitping`)
 
-Codex/Spark 会分别判断 CLI 请求完成与限额窗口启动，包括使用率为 0% 的窗口。
-手动 ping 不会等待一分钟；watch 负责后续检查和有上限的重试。
-状态字段、存储位置和平台限制参见[窗口验证说明](docs/window-verification.md)。
-
 [English](README.md) | **中文**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
@@ -100,6 +96,19 @@ limitping bg logs -f
 
 Claude/Codex 的 token 直接复用官方工具(无需另外登录),遇到 401 会自动刷新。Spark 复用
 Codex token。
+
+### Codex/Spark 窗口验证
+
+用量为 0% 时，单次限额 API 响应不一定能判断窗口是否已启动。
+以下以五小时窗口的重置时间为例：
+
+| 情况（用量均为 0%） | 10:00 查询 | 10:01 查询 |
+| --- | --- | --- |
+| 已启动：重置时间固定 | 15:00 | 15:00 |
+| 未启动：重置时间向后滑动 | 15:00 | 15:01 |
+
+因此，limitping 会比较至少间隔一分钟的查询结果；证据不足时仍显示未确认。
+`ping` 不会等待这一分钟，而是提示稍后运行 `status`；`watch`/`bg` 会自动复查。
 
 ## 安装
 
@@ -224,6 +233,7 @@ spark   ✓ turn completed (6.5s); quota start is checked separately
 ```
 
 对于 Codex/Spark，`limitping` 会自动追加 `-c tui...` 参数以启用 Codex CLI 的 turn 结束通知，从而检测轮次完成并立即退出。限额窗口是否启动由限额 API 单独确认。
+未收到完成通知时，即使进程正常退出，也会返回非零退出码；超时及进程错误同样按失败处理。
 
 ping 后请用 `status` 或 `bg status` 查看权威的 5h/周窗口状态。
 
