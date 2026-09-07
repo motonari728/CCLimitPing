@@ -42,7 +42,7 @@ func TestPingStartupHint(t *testing.T) {
 				if strings.Contains(got, text.pingStartupHint) != tc.hint {
 					t.Fatal(got)
 				}
-				if tc.hint && strings.Index(got, text.pingStartupHint) > strings.Index(got, "weekly:") {
+				if tc.hint && strings.Index(got, text.pingStartupHint) > strings.Index(got, fmt.Sprintf(text.verifyQuotaStateFmt, "weekly", text.verifyStarted)) {
 					t.Fatal(got)
 				}
 			}

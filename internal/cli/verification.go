@@ -37,7 +37,17 @@ func reportVerification(out io.Writer, text cliText, res *provider.TriggerResult
 	if v.Target == "weekly" {
 		s = v.Weekly
 	}
-	fmt.Fprintf(out, "  %s: %s\n", v.Target, startDescription(text, s))
+	description := startDescription(text, s)
+	if pre := res.PreVerification; pre != nil && pre.Target == v.Target && s.State == codexstate.Started {
+		before := pre.FiveHour
+		if v.Target == "weekly" {
+			before = pre.Weekly
+		}
+		if before.State == codexstate.Started {
+			description = text.verifyAlreadyActive
+		}
+	}
+	fmt.Fprintf(out, text.verifyQuotaStateFmt, v.Target, description)
 	if v.Warning != "" {
 		fmt.Fprintln(out, "  "+v.Warning)
 	}
