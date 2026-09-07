@@ -6,17 +6,21 @@ import (
 )
 
 type cliText struct {
-	verifyStarted    string
-	verifyNotStarted string
-	verifyUnknown    string
-	verifyRecovery   string
-	verifyDisabled   string
-	verifyNoBaseline string
-	verifyCheckFmt   string
-	rootShort        string
-	rootLong         string
-	helpFlag         string
-	usageTemplate    string
+	verifyStarted     string
+	verifyNotStarted  string
+	verifyUnknown     string
+	verifyStatusCheck string
+	verifyRetryFmt    string
+	verifyRunning     string
+	verifyReady       string
+	verifyUnavailable string
+	verifyDisabled    string
+	verifyNoBaseline  string
+	verifyCheckFmt    string
+	rootShort         string
+	rootLong          string
+	helpFlag          string
+	usageTemplate     string
 
 	helpCommandShort string
 	helpCommandLong  string
@@ -195,16 +199,20 @@ func isChineseLocale() bool {
 }
 
 var enText = cliText{
-	verifyStarted:    "window started",
-	verifyNotStarted: "window not started (reset is an estimate)",
-	verifyUnknown:    "window start unconfirmed (reset is an estimate)",
-	verifyRecovery:   "quota recovery / next eligibility",
-	verifyDisabled:   "  This provider is disabled in config and will not appear in `limitping status`.",
-	verifyNoBaseline: "  Run `limitping status` to collect a baseline, then check again after 60s.",
-	verifyCheckFmt:   "  Run `limitping status` after %s to recheck (no background check was scheduled by this command).\n",
-	rootShort:        "Keep Claude Code / Codex / Spark rate-limit windows back-to-back",
-	rootLong:         "limitping pings your AI coding provider the moment its 5h rate-limit window resets, so the next window starts immediately and stays aligned. Usage is read via zero-quota endpoints; pings go through the official CLIs.",
-	helpFlag:         "help for this command",
+	verifyStarted:     "window started",
+	verifyNotStarted:  "window not started (reset is an estimate)",
+	verifyUnknown:     "window start unconfirmed (reset is an estimate)",
+	verifyStatusCheck: "Window start unconfirmed; run `limitping status` again in about a minute.",
+	verifyRetryFmt:    "Automatic ping retry eligible at %s.",
+	verifyRunning:     "Ping in progress.",
+	verifyReady:       "Window not started; eligible for automatic ping, subject to watcher checks.",
+	verifyUnavailable: "Quota-window state unavailable; run `limitping status` again in about a minute.",
+	verifyDisabled:    "  This provider is disabled in config and will not appear in `limitping status`.",
+	verifyNoBaseline:  "  Run `limitping status` to collect a baseline, then check again after 60s.",
+	verifyCheckFmt:    "  Run `limitping status` after %s to recheck (no background check was scheduled by this command).\n",
+	rootShort:         "Keep Claude Code / Codex / Spark rate-limit windows back-to-back",
+	rootLong:          "limitping pings your AI coding provider the moment its 5h rate-limit window resets, so the next window starts immediately and stays aligned. Usage is read via zero-quota endpoints; pings go through the official CLIs.",
+	helpFlag:          "help for this command",
 	usageTemplate: `Usage:{{if .Runnable}}
   {{.UseLine}}{{end}}{{if .HasAvailableSubCommands}}
   {{.CommandPath}} [command]{{end}}{{if gt (len .Aliases) 0}}
@@ -462,16 +470,20 @@ Examples:
 }
 
 var zhText = cliText{
-	verifyStarted:    "窗口已启动",
-	verifyNotStarted: "窗口未启动（重置时间为估计值）",
-	verifyUnknown:    "窗口启动尚未确认（重置时间为估计值）",
-	verifyRecovery:   "窗口恢复 / 下次可尝试时间",
-	verifyDisabled:   "  此服务在配置中已禁用，不会出现在 `limitping status` 中。",
-	verifyNoBaseline: "  运行 `limitping status` 采集基准，60 秒后再次检查。",
-	verifyCheckFmt:   "  %s 后运行 `limitping status` 再次检查（本命令未安排后台检查）。\n",
-	rootShort:        "让 Claude Code / Codex / Spark 的限额窗口自动接龙",
-	rootLong:         "limitping 会在 AI 编程 Provider 的 5h 限额窗口重置时立即发送 ping，让下一个窗口马上开始并保持对齐。用量读取走零消耗接口；ping 通过官方 CLI 发送。",
-	helpFlag:         "显示此命令的帮助",
+	verifyStarted:     "窗口已启动",
+	verifyNotStarted:  "窗口未启动（重置时间为估计值）",
+	verifyUnknown:     "窗口启动尚未确认（重置时间为估计值）",
+	verifyStatusCheck: "窗口启动尚未确认；请约一分钟后再次运行 `limitping status`。",
+	verifyRetryFmt:    "自动 ping 最早可于 %s 重试。",
+	verifyRunning:     "Ping 正在进行。",
+	verifyReady:       "窗口未启动；可尝试自动 ping，仍需通过监视器检查。",
+	verifyUnavailable: "窗口状态不可用；请约一分钟后再次运行 `limitping status`。",
+	verifyDisabled:    "  此服务在配置中已禁用，不会出现在 `limitping status` 中。",
+	verifyNoBaseline:  "  运行 `limitping status` 采集基准，60 秒后再次检查。",
+	verifyCheckFmt:    "  %s 后运行 `limitping status` 再次检查（本命令未安排后台检查）。\n",
+	rootShort:         "让 Claude Code / Codex / Spark 的限额窗口自动接龙",
+	rootLong:          "limitping 会在 AI 编程 Provider 的 5h 限额窗口重置时立即发送 ping，让下一个窗口马上开始并保持对齐。用量读取走零消耗接口；ping 通过官方 CLI 发送。",
+	helpFlag:          "显示此命令的帮助",
 	usageTemplate: `用法:{{if .Runnable}}
   {{.UseLine}}{{end}}{{if .HasAvailableSubCommands}}
   {{.CommandPath}} [command]{{end}}{{if gt (len .Aliases) 0}}

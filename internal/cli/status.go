@@ -250,11 +250,18 @@ func printUsage(out io.Writer, text cliText, u *usage.Usage, verbose bool, displ
 	fmt.Fprintf(out, text.statusFiveHourLineFmt, five)
 	fmt.Fprintf(out, text.statusWeeklyLineFmt, week)
 	if v := u.Verification; v != nil {
-		fmt.Fprintf(out, "  %s: %s %s", text.verifyRecovery, v.Target, v.Recovery)
-		if !v.NextEligible.IsZero() {
-			fmt.Fprintf(out, " (%s)", fmtClock(text, v.NextEligible))
+		switch v.Recovery {
+		case "verifying":
+			fmt.Fprintln(out, "  "+text.verifyStatusCheck)
+		case "backoff", "cooldown":
+			fmt.Fprintf(out, "  "+text.verifyRetryFmt+"\n", fmtClock(text, v.NextEligible))
+		case "ping_running":
+			fmt.Fprintln(out, "  "+text.verifyRunning)
+		case "ready":
+			fmt.Fprintln(out, "  "+text.verifyReady)
+		case "unavailable":
+			fmt.Fprintln(out, "  "+text.verifyUnavailable)
 		}
-		fmt.Fprintln(out)
 		if v.Warning != "" {
 			fmt.Fprintln(out, "  "+v.Warning)
 		}
