@@ -76,11 +76,11 @@ func (c *Codex) ReadUsage(ctx context.Context) (*usage.Usage, error) {
 }
 
 func (c *Codex) Trigger(ctx context.Context, dryRun bool) (*TriggerResult, error) {
-	return pingVerified(ctx, c.Name(), c.cfg, dryRun, false, 0, 0)
+	return pingVerified(ctx, c.Name(), c.cfg, dryRun, nil)
 }
 
-func (c *Codex) TriggerAutomatic(ctx context.Context, threshold float64, resetBuffer time.Duration) (*TriggerResult, error) {
-	return pingVerified(ctx, c.Name(), c.cfg, false, true, threshold, resetBuffer)
+func (c *Codex) TriggerWithReservation(ctx context.Context, reserve PingReservation) (*TriggerResult, error) {
+	return pingVerified(ctx, c.Name(), c.cfg, false, reserve)
 }
 
 // RedeemResetCredit spends the next available reset credit right now. Each call
@@ -228,11 +228,11 @@ func (s *Spark) ReadUsage(ctx context.Context) (*usage.Usage, error) {
 }
 
 func (s *Spark) Trigger(ctx context.Context, dryRun bool) (*TriggerResult, error) {
-	return pingVerified(ctx, s.Name(), s.cfg, dryRun, false, 0, 0)
+	return pingVerified(ctx, s.Name(), s.cfg, dryRun, nil)
 }
 
-func (s *Spark) TriggerAutomatic(ctx context.Context, threshold float64, resetBuffer time.Duration) (*TriggerResult, error) {
-	return pingVerified(ctx, s.Name(), s.cfg, false, true, threshold, resetBuffer)
+func (s *Spark) TriggerWithReservation(ctx context.Context, reserve PingReservation) (*TriggerResult, error) {
+	return pingVerified(ctx, s.Name(), s.cfg, false, reserve)
 }
 
 func codexActiveTask(_ context.Context) (string, bool, error) {
@@ -303,6 +303,9 @@ type codexResetCredit struct {
 
 func readCodexUsage(ctx context.Context, auth *auth.CodexAuth) ([]byte, codexUsageResp, error) {
 	var r codexUsageResp
+	if _, err := auth.Token(ctx); err != nil {
+		return nil, r, &AuthenticationError{Err: err}
+	}
 	body, err := fetchWithAuth(ctx, auth, func(token string) (*http.Request, error) {
 		accountID, _ := auth.AccountID(ctx)
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, codexUsageURL(), nil)

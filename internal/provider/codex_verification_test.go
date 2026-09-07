@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -123,6 +124,72 @@ func TestDryRunNeverReadsOrWritesState(t *testing.T) {
 	entries, _ := os.ReadDir(dir)
 	if len(entries) != 0 {
 		t.Fatal(entries)
+	}
+}
+
+func TestQuotaPrecheckFailureNeverSends(t *testing.T) {
+	for _, automatic := range []bool{false, true} {
+		t.Run(fmt.Sprint(automatic), func(t *testing.T) {
+			fakeCodexHome(t)
+			marker := filepath.Join(t.TempDir(), "sent")
+			t.Setenv("TEST_SENT", marker)
+			fakeCodexCLI(t, `touch "$TEST_SENT"`)
+			reads := 0
+			useTransport(t, func(*http.Request) (*http.Response, error) {
+				reads++
+				return &http.Response{StatusCode: 403, Body: io.NopCloser(strings.NewReader("{}")), Header: make(http.Header)}, nil
+			})
+			var reserve PingReservation
+			if automatic {
+				reserve = func(codexstate.Store, string, string, *usage.Usage) (string, error) {
+					t.Fatal("failed precheck must not reserve a ping")
+					return "", nil
+				}
+			}
+			start := time.Now()
+			res, err := pingVerified(context.Background(), "codex", config.ProviderConfig{}, false, reserve)
+			var httpErr *UsageHTTPError
+			if res != nil || !errors.As(err, &httpErr) || httpErr.StatusCode != 403 || !strings.Contains(err.Error(), "ping not sent: quota precheck failed") {
+				t.Fatal(res, err)
+			}
+			if reads != 1 || time.Since(start) > 5*time.Second {
+				t.Fatal("precheck retried or waited", reads)
+			}
+			if _, err := os.Stat(marker); !os.IsNotExist(err) {
+				t.Fatal("CLI was executed", err)
+			}
+		})
+	}
+}
+
+func TestMissingCredentialsIsAuthenticationFailure(t *testing.T) {
+	t.Setenv("CODEX_HOME", t.TempDir())
+	res, err := NewCodex(config.ProviderConfig{}).Trigger(context.Background(), false)
+	var authErr *AuthenticationError
+	if res != nil || !errors.As(err, &authErr) || !strings.Contains(err.Error(), "ping not sent") {
+		t.Fatal(res, err)
+	}
+}
+
+func TestPrecheckReloadsCredentialsOn401(t *testing.T) {
+	fakeCodexHome(t)
+	fakeCodexCLI(t, `printf '\033]9;done\007'`)
+	reads := 0
+	useTransport(t, func(req *http.Request) (*http.Response, error) {
+		reads++
+		if reads == 1 {
+			if err := os.WriteFile(filepath.Join(os.Getenv("CODEX_HOME"), "auth.json"), []byte(`{"tokens":{"access_token":"new-token","account_id":"account-123"}}`), 0600); err != nil {
+				t.Fatal(err)
+			}
+			return &http.Response{StatusCode: 401, Body: io.NopCloser(strings.NewReader("{}")), Header: make(http.Header)}, nil
+		}
+		if req.Header.Get("Authorization") != "Bearer new-token" {
+			t.Fatal("stale token")
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(quotaResponse(time.Now().Add(7 * 24 * time.Hour).Unix()))), Header: make(http.Header)}, nil
+	})
+	if _, err := NewCodex(config.ProviderConfig{}).Trigger(context.Background(), false); err != nil || reads != 3 {
+		t.Fatal(err, reads)
 	}
 }
 

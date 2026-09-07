@@ -15,6 +15,10 @@ import (
 
 const quotaReadBudget = 3 * time.Second
 
+// PingReservation lets the watcher gate and reserve a send using fresh quota data.
+// It returns a state claim, which the common ping path finishes after the CLI exits.
+type PingReservation func(codexstate.Store, string, string, *usage.Usage) (string, error)
+
 type noQuotaStateKey struct{}
 type pingStageKey struct{}
 
@@ -109,7 +113,7 @@ func boundedQuota(ctx context.Context, name string, cfg config.ProviderConfig) (
 	return readVerifiedUsage(readCtx, name, cfg, false)
 }
 
-func pingVerified(ctx context.Context, name string, cfg config.ProviderConfig, dry, automatic bool, threshold float64, resetBuffer time.Duration) (*TriggerResult, error) {
+func pingVerified(ctx context.Context, name string, cfg config.ProviderConfig, dry bool, reserve PingReservation) (*TriggerResult, error) {
 	if dry {
 		return triggerCodex(ctx, cfg, true)
 	}
@@ -118,55 +122,32 @@ func pingVerified(ctx context.Context, name string, cfg config.ProviderConfig, d
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
-	warning := ""
 	if readErr != nil {
-		warning = "pre-ping quota read failed: " + readErr.Error()
+		return nil, fmt.Errorf("ping not sent: quota precheck failed: %w", readErr)
 	}
-	if pre != nil && pre.Verification.Warning != "" {
-		warning = pre.Verification.Warning
-	}
-	if automatic && (readErr != nil || warning != "") {
-		if readErr != nil {
-			return nil, fmt.Errorf("automatic pre-ping check unavailable: %w", readErr)
-		}
-		return nil, fmt.Errorf("automatic pre-ping check unavailable: %s", warning)
-	}
+	warning := pre.Verification.Warning
 	identity, identityErr := currentCodexAccount(ctx)
-	if identityErr == nil && (account == "" || readErr != nil) {
-		account = identity
+	if identityErr != nil {
+		return nil, fmt.Errorf("ping not sent: account check failed: %w", identityErr)
 	}
-	if identityErr != nil || identity != account {
-		if automatic {
-			return nil, codexstate.ErrDeferred
-		}
-		warning = "account changed or unavailable; window verification unavailable"
-		account = ""
-	}
-	if automatic {
-		if pre.WeeklyExhausted(threshold) {
-			return nil, codexstate.ErrDeferred
-		}
-		if _, active, err := codexActiveTask(ctx); err != nil || active {
-			return nil, codexstate.ErrDeferred
-		}
+	if identity != account {
+		return nil, fmt.Errorf("ping not sent: Codex account changed during quota precheck; retry")
 	}
 	store, storeErr := quotaStore()
-	store.ResetBuffer = resetBuffer
 	key := quotaBucket(name, cfg)
 	claim := ""
-	if storeErr == nil && account != "" {
-		var observed time.Time
-		if pre != nil {
-			observed = pre.FetchedAt
+	if storeErr == nil {
+		if reserve != nil {
+			claim, storeErr = reserve(store, account, key, pre)
+		} else {
+			claim, storeErr = store.Begin(account, key, false, pre.FetchedAt, time.Now())
 		}
-		claim, storeErr = store.Begin(account, key, automatic, observed, time.Now())
 	}
 	if storeErr != nil {
-		if automatic || errors.Is(storeErr, codexstate.ErrBusy) || errors.Is(storeErr, codexstate.ErrDeferred) {
-			return nil, storeErr
+		if reserve != nil || errors.Is(storeErr, codexstate.ErrBusy) || errors.Is(storeErr, codexstate.ErrDeferred) {
+			return nil, fmt.Errorf("ping not sent: %w", storeErr)
 		}
 		warning = "quota coordination unavailable: " + storeErr.Error()
-		claim = ""
 	}
 	// The PTY deadline and claim deadline must describe the same bounded operation.
 	pingStage(ctx, "sending ping")
