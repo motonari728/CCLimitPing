@@ -3,17 +3,19 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/wavever/CCLimitPing/internal/codexstate"
 	"github.com/wavever/CCLimitPing/internal/provider"
+	"github.com/wavever/CCLimitPing/internal/usage"
 )
 
 // runVerifiedTarget is shared by Codex and Spark, never by Claude. A successful
 // transport does not advance a quota schedule without observation evidence.
 func (s *Scheduler) runVerifiedTarget(ctx context.Context, t Target, p provider.VerifiedTrigger) {
 	name := t.Provider.Name()
-	backoff := minBackoff
+	var reads, prechecks quotaRetry
 	aligned := t.AlignStart.IsZero()
 	wait := func(reason string, d time.Duration) bool {
 		if d <= 0 {
@@ -28,21 +30,14 @@ func (s *Scheduler) runVerifiedTarget(ctx context.Context, t Target, p provider.
 		u, err := t.Provider.ReadUsage(rctx)
 		cancel()
 		if err != nil {
-			d := backoff
-			var httpErr *provider.UsageHTTPError
-			if errors.As(err, &httpErr) && !httpErr.RetryAfter.IsZero() {
-				d = usageRateLimitWait(httpErr.RetryAfter, time.Now())
-			} else if errors.As(err, &httpErr) && httpErr.StatusCode == 429 {
-				d = rateLimitPause
-			}
+			d := reads.next(err, time.Now())
 			s.log.Printf("[%s] quota read failed: %v (retry in %s)", name, err, d)
 			if !wait("quota read failed", d) {
 				return
 			}
-			backoff = nextBackoff(backoff)
 			continue
 		}
-		backoff = minBackoff
+		reads = quotaRetry{}
 		if s.redeemExpiringCredit(ctx, t, u) {
 			continue
 		}
@@ -76,6 +71,7 @@ func (s *Scheduler) runVerifiedTarget(ctx context.Context, t Target, p provider.
 			}
 		}
 		if v.Recovery == "window_started" {
+			prechecks = quotaRetry{}
 			// Observe at rollover; the verification interval counts toward the buffer.
 			d := time.Until(v.NextEligible)
 			if d > 5*time.Minute {
@@ -114,8 +110,21 @@ func (s *Scheduler) runVerifiedTarget(ctx context.Context, t Target, p provider.
 			continue
 		}
 		s.live.set(name, "checking and sending ping…", time.Time{})
-		res, err := p.TriggerAutomatic(ctx, s.cfg.WeeklyThreshold, s.cfg.ResetBuffer.Duration)
+		res, err := p.TriggerWithReservation(ctx, func(store codexstate.Store, account, key string, pre *usage.Usage) (string, error) {
+			if pre.Verification == nil || pre.Verification.Warning != "" {
+				return "", fmt.Errorf("quota state unavailable")
+			}
+			if pre.WeeklyExhausted(s.cfg.WeeklyThreshold) {
+				return "", codexstate.ErrDeferred
+			}
+			if _, active, err := activeProviderTask(ctx, t.Provider); err != nil || active {
+				return "", codexstate.ErrDeferred
+			}
+			store.ResetBuffer = s.cfg.ResetBuffer.Duration
+			return store.Begin(account, key, true, pre.FetchedAt, time.Now())
+		})
 		if errors.Is(err, codexstate.ErrBusy) || errors.Is(err, codexstate.ErrDeferred) {
+			prechecks = quotaRetry{}
 			if !wait("ping deferred", codexstate.Interval) {
 				return
 			}
@@ -123,17 +132,14 @@ func (s *Scheduler) runVerifiedTarget(ctx context.Context, t Target, p provider.
 		}
 		if err != nil && res == nil {
 			// No trigger occurred: do not manufacture a failed ping-history entry.
-			d := minBackoff
-			var httpErr *provider.UsageHTTPError
-			if errors.As(err, &httpErr) && (!httpErr.RetryAfter.IsZero() || httpErr.StatusCode == 429) {
-				d = usageRateLimitWait(httpErr.RetryAfter, time.Now())
-			}
+			d := prechecks.next(err, time.Now())
 			s.log.Printf("[%s] pre-ping check failed: %v; observing again in %s", name, err, d)
 			if !wait("pre-ping check unavailable", d) {
 				return
 			}
 			continue
 		}
+		prechecks = quotaRetry{}
 		if err != nil {
 			s.log.Printf("[%s] ping failed: %v; verifying quota before retry", name, err)
 			s.notify(name+": ping failed", "Verifying quota before another attempt")
@@ -153,4 +159,36 @@ func (s *Scheduler) runVerifiedTarget(ctx context.Context, t Target, p provider.
 			return
 		}
 	}
+}
+
+type quotaRetry struct {
+	delay time.Duration
+	auth  bool
+}
+
+func (r *quotaRetry) next(err error, now time.Time) time.Duration {
+	var httpErr *provider.UsageHTTPError
+	var authErr *provider.AuthenticationError
+	auth := errors.As(err, &authErr)
+	if errors.As(err, &httpErr) {
+		auth = auth || httpErr.StatusCode == 401 || httpErr.StatusCode == 403
+		if !httpErr.RetryAfter.IsZero() || httpErr.StatusCode == 429 {
+			*r = quotaRetry{}
+			return usageRateLimitWait(httpErr.RetryAfter, now)
+		}
+	}
+	if r.delay == 0 || r.auth != auth {
+		r.delay = minBackoff
+	} else {
+		r.delay *= 2
+	}
+	r.auth = auth
+	cap := maxBackoff
+	if auth {
+		cap = time.Hour
+	}
+	if r.delay > cap {
+		r.delay = cap
+	}
+	return r.delay
 }

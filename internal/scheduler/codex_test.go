@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"io"
 	"testing"
 	"time"
@@ -10,9 +11,48 @@ import (
 	"github.com/wavever/CCLimitPing/internal/usage"
 )
 
+func TestQuotaRetryPolicy(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		cap  time.Duration
+	}{
+		{"unauthorized", &provider.UsageHTTPError{StatusCode: 401}, time.Hour},
+		{"forbidden", &provider.UsageHTTPError{StatusCode: 403}, time.Hour},
+		{"credentials", &provider.AuthenticationError{Err: errors.New("missing credentials")}, time.Hour},
+		{"server", &provider.UsageHTTPError{StatusCode: 503}, 10 * time.Minute},
+		{"network", errors.New("connection failed"), 10 * time.Minute},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var retry quotaRetry
+			want := 30 * time.Second
+			for i := 0; i < 12; i++ {
+				if got := retry.next(tc.err, time.Now()); got != want {
+					t.Fatalf("step %d: %s, want %s", i, got, want)
+				}
+				want *= 2
+				if want > tc.cap {
+					want = tc.cap
+				}
+			}
+		})
+	}
+	now := time.Now()
+	var retry quotaRetry
+	if got := retry.next(&provider.UsageHTTPError{StatusCode: 429, RetryAfter: now.Add(20 * time.Minute)}, now); got != 20*time.Minute {
+		t.Fatal(got)
+	}
+	if got := retry.next(&provider.UsageHTTPError{StatusCode: 429}, now); got != 5*time.Minute {
+		t.Fatal(got)
+	}
+	if got := retry.next(&provider.UsageHTTPError{StatusCode: 403}, now); got != 30*time.Second {
+		t.Fatal(got)
+	}
+}
+
 type verifiedStub struct{ stubProvider }
 
-func (p *verifiedStub) TriggerAutomatic(ctx context.Context, _ float64, _ time.Duration) (*provider.TriggerResult, error) {
+func (p *verifiedStub) TriggerWithReservation(ctx context.Context, _ provider.PingReservation) (*provider.TriggerResult, error) {
 	return p.Trigger(ctx, false)
 }
 
