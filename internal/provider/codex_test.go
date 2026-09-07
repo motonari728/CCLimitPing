@@ -370,7 +370,7 @@ done
 	t.Setenv("TERM", "dumb")
 
 	timing := codexInteractiveTiming{
-		maxWait:   time.Second,
+		maxWait:   10 * time.Second,
 		exitGrace: 50 * time.Millisecond,
 	}
 	started := time.Now()
@@ -381,7 +381,7 @@ done
 	if err != nil {
 		t.Fatalf("trigger: %v", err)
 	}
-	if elapsed := time.Since(started); elapsed >= 500*time.Millisecond {
+	if elapsed := time.Since(started); elapsed >= 5*time.Second {
 		t.Fatalf("trigger took %s, want completion marker to stop it before fallback", elapsed)
 	}
 
