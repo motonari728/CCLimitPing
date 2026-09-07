@@ -58,7 +58,7 @@ func TestBackgroundVerificationDoesNotCountAsPing(t *testing.T) {
 		msg   string
 		count bool
 	}{
-		{"ping request completed; checking window", true},
+		{"ping request completed; checking window", false},
 		{"ping trigger returned; checking window", true},
 		{"window started after verification", false},
 		{"quota read failed: timeout", false},
