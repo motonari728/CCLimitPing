@@ -241,6 +241,7 @@ spark   ✓ turn completed (6.5s); quota start is checked separately
 对于 Codex/Spark，`limitping` 会自动追加 `-c tui...` 参数，收到轮次完成通知后停止 TUI。
 仍保留 45 秒安全超时；这不代表已确认限额窗口启动。
 未收到完成通知时，即使进程正常退出，也会返回非零退出码；超时及进程错误同样按失败处理。
+完成通知超时或正常退出但未收到通知时，会提示使用相同的 `CODEX_HOME` 在终端重跑命令，检查启动确认对话框。监视器日志还会记录命令和 `CODEX_HOME` 设置。
 
 ping 后请用 `status` 或 `bg status` 查看权威的 5h/周窗口状态。
 

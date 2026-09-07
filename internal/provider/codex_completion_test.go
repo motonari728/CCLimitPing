@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -28,6 +29,10 @@ func TestCodexCompletionOutcomes(t *testing.T) {
 				codexInteractiveTiming{maxWait: 100 * time.Millisecond, exitGrace: 20 * time.Millisecond})
 			if res.TurnCompleted != tc.completed {
 				t.Fatalf("completed=%v", res.TurnCompleted)
+			}
+			var completionErr *CodexCompletionError
+			if got, want := errors.As(err, &completionErr), tc.name == "timeout" || tc.name == "clean-without-marker"; got != want {
+				t.Fatalf("startup diagnostic classification=%v, want %v: %v", got, want, err)
 			}
 			if tc.wantError == "" {
 				if err != nil {

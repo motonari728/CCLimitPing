@@ -264,6 +264,9 @@ enable turn-completion notifications and stop the TUI when one is received.
 A 45-second safety timeout remains; this does not verify quota-window activation.
 Without a completion notification, the attempt returns a nonzero exit status,
 including on timeout or clean process exit; process failures also remain errors.
+Timeouts and clean exits without a completion notification include a hint to
+rerun the command in a terminal with the same `CODEX_HOME` and check for startup
+confirmation dialogs. Watcher logs also include the command and `CODEX_HOME` setting.
 
 Use `status` or `bg status` for the authoritative 5h/weekly window view after a
 ping.

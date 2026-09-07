@@ -6,6 +6,7 @@ import (
 )
 
 type cliText struct {
+	pingStartupHint   string
 	verifyStarted     string
 	verifyNotStarted  string
 	verifyUnknown     string
@@ -199,6 +200,7 @@ func isChineseLocale() bool {
 }
 
 var enText = cliText{
+	pingStartupHint:   "  Hint: Codex may be waiting for a startup confirmation.\n  Run the command shown above in a terminal and check for confirmation dialogs.\n  Use the same CODEX_HOME as limitping.",
 	verifyStarted:     "window started",
 	verifyNotStarted:  "window not started (reset is an estimate)",
 	verifyUnknown:     "window start unconfirmed (reset is an estimate)",
@@ -470,6 +472,7 @@ Examples:
 }
 
 var zhText = cliText{
+	pingStartupHint:   "  提示：Codex 可能正在等待启动确认。\n  请在终端运行上方命令，检查是否出现确认对话框。\n  使用与 limitping 相同的 CODEX_HOME。",
 	verifyStarted:     "窗口已启动",
 	verifyNotStarted:  "窗口未启动（重置时间为估计值）",
 	verifyUnknown:     "窗口启动尚未确认（重置时间为估计值）",

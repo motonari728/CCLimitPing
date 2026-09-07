@@ -21,6 +21,35 @@ func TestBusyPingOutputSuggestsRetry(t *testing.T) {
 	}
 }
 
+func TestPingStartupHint(t *testing.T) {
+	for _, text := range []cliText{enText, zhText} {
+		for _, name := range []string{"codex", "spark"} {
+			for _, tc := range []struct {
+				err  error
+				hint bool
+			}{
+				{fmt.Errorf("wrapped: %w", &provider.CodexCompletionError{Reason: "completion unconfirmed"}), true},
+				{&provider.UsageHTTPError{StatusCode: 401}, false},
+				{fmt.Errorf("process failed"), false},
+				{codexstate.ErrBusy, false},
+			} {
+				var out bytes.Buffer
+				res := &provider.TriggerResult{Verification: &usage.Verification{
+					Target: "weekly", Weekly: usage.StartStatus{State: "started"},
+				}}
+				report(&out, text, name, time.Now(), res, tc.err)
+				got := out.String()
+				if strings.Contains(got, text.pingStartupHint) != tc.hint {
+					t.Fatal(got)
+				}
+				if tc.hint && strings.Index(got, text.pingStartupHint) > strings.Index(got, "weekly:") {
+					t.Fatal(got)
+				}
+			}
+		}
+	}
+}
+
 func TestPrecheckFailureOutputSaysNotSent(t *testing.T) {
 	var out bytes.Buffer
 	err := fmt.Errorf("ping not sent: quota precheck failed: %w", &provider.UsageHTTPError{StatusCode: 403})

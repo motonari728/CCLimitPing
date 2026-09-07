@@ -687,13 +687,13 @@ func codexAwait(ctx context.Context, cmd *exec.Cmd, ptmx *os.File, output *limit
 			return true, turnCompleted, codexInteractiveErr(err, output)
 		}
 		if !turnCompleted {
-			return true, false, fmt.Errorf("codex exited without a turn-completion notification; completion unconfirmed")
+			return true, false, &CodexCompletionError{Reason: "codex exited without a turn-completion notification; completion unconfirmed"}
 		}
 		return true, true, nil
 	case <-ctx.Done():
 		return true, false, codexInteractiveCancel(ctx, cmd, ptmx, done, output)
 	case <-time.After(maxWait):
-		return false, false, fmt.Errorf("codex turn-completion notification timed out after %s", maxWait)
+		return false, false, &CodexCompletionError{Reason: fmt.Sprintf("codex turn-completion notification timed out after %s", maxWait)}
 	}
 }
 
