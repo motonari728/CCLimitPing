@@ -197,6 +197,9 @@ func TestPostcheckFailureReportsSentWithoutRetry(t *testing.T) {
 		t.Fatal(res, err, reads)
 	}
 	var postErr *UsageHTTPError
+	if res.PreVerification == nil || res.PreVerification == res.Verification {
+		t.Fatal("pre-ping verification was not retained separately")
+	}
 	if !errors.As(res.PostcheckErr, &postErr) || postErr.StatusCode != 503 || !postErr.RetryAfter.After(time.Now().Add(19*time.Minute)) {
 		t.Fatal("postcheck retry metadata lost", res.PostcheckErr)
 	}

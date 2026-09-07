@@ -158,6 +158,7 @@ func pingVerified(ctx context.Context, name string, cfg config.ProviderConfig, d
 		res = &TriggerResult{}
 	}
 	res.StatusEnabled = cfg.Enabled
+	res.PreVerification = pre.Verification
 	after, afterErr := currentCodexAccount(ctx)
 	changed := account == "" || afterErr != nil || after != account
 	if claim != "" {
