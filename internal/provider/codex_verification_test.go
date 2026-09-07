@@ -128,37 +128,70 @@ func TestDryRunNeverReadsOrWritesState(t *testing.T) {
 }
 
 func TestQuotaPrecheckFailureNeverSends(t *testing.T) {
-	for _, automatic := range []bool{false, true} {
-		t.Run(fmt.Sprint(automatic), func(t *testing.T) {
-			fakeCodexHome(t)
-			marker := filepath.Join(t.TempDir(), "sent")
-			t.Setenv("TEST_SENT", marker)
-			fakeCodexCLI(t, `touch "$TEST_SENT"`)
-			reads := 0
-			useTransport(t, func(*http.Request) (*http.Response, error) {
-				reads++
-				return &http.Response{StatusCode: 403, Body: io.NopCloser(strings.NewReader("{}")), Header: make(http.Header)}, nil
-			})
-			var reserve PingReservation
-			if automatic {
-				reserve = func(codexstate.Store, string, string, *usage.Usage) (string, error) {
-					t.Fatal("failed precheck must not reserve a ping")
-					return "", nil
+	for _, status := range []int{403, 503} {
+		for _, automatic := range []bool{false, true} {
+			t.Run(fmt.Sprint(status, automatic), func(t *testing.T) {
+				fakeCodexHome(t)
+				marker := filepath.Join(t.TempDir(), "sent")
+				t.Setenv("TEST_SENT", marker)
+				fakeCodexCLI(t, `touch "$TEST_SENT"`)
+				reads := 0
+				useTransport(t, func(*http.Request) (*http.Response, error) {
+					reads++
+					return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader("{}")), Header: make(http.Header)}, nil
+				})
+				var reserve PingReservation
+				if automatic {
+					reserve = func(codexstate.Store, string, string, *usage.Usage) (string, error) {
+						t.Fatal("failed precheck must not reserve a ping")
+						return "", nil
+					}
 				}
-			}
-			start := time.Now()
-			res, err := pingVerified(context.Background(), "codex", config.ProviderConfig{}, false, reserve)
-			var httpErr *UsageHTTPError
-			if res != nil || !errors.As(err, &httpErr) || httpErr.StatusCode != 403 || !strings.Contains(err.Error(), "ping not sent: quota precheck failed") {
-				t.Fatal(res, err)
-			}
-			if reads != 1 || time.Since(start) > 5*time.Second {
-				t.Fatal("precheck retried or waited", reads)
-			}
-			if _, err := os.Stat(marker); !os.IsNotExist(err) {
-				t.Fatal("CLI was executed", err)
-			}
-		})
+				start := time.Now()
+				res, err := pingVerified(context.Background(), "codex", config.ProviderConfig{}, false, reserve)
+				var httpErr *UsageHTTPError
+				if res != nil || !errors.As(err, &httpErr) || httpErr.StatusCode != status || !strings.Contains(err.Error(), "ping not sent: quota precheck failed") {
+					t.Fatal(res, err)
+				}
+				if reads != 1 || time.Since(start) > 5*time.Second {
+					t.Fatal("precheck retried or waited", reads)
+				}
+				if _, err := os.Stat(marker); !os.IsNotExist(err) {
+					t.Fatal("CLI was executed", err)
+				}
+			})
+		}
+	}
+}
+
+func TestQuotaNetworkFailureDoesNotRetry(t *testing.T) {
+	fakeCodexHome(t)
+	reads := 0
+	useTransport(t, func(*http.Request) (*http.Response, error) {
+		reads++
+		return nil, io.ErrUnexpectedEOF
+	})
+	res, err := NewCodex(config.ProviderConfig{}).Trigger(context.Background(), false)
+	if res != nil || !errors.Is(err, io.ErrUnexpectedEOF) || reads != 1 {
+		t.Fatal(res, err, reads)
+	}
+}
+
+func TestPostcheckFailureReportsSentWithoutRetry(t *testing.T) {
+	fakeCodexHome(t)
+	fakeCodexCLI(t, `printf '\033]9;done\007'`)
+	reads := 0
+	useTransport(t, func(*http.Request) (*http.Response, error) {
+		reads++
+		status, body := 200, quotaResponse(time.Now().Add(7*24*time.Hour).Unix())
+		if reads > 1 {
+			status, body = 503, "{}"
+		}
+		return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	})
+	res, err := NewCodex(config.ProviderConfig{}).Trigger(context.Background(), false)
+	if err != nil || reads != 2 || res == nil || !strings.Contains(res.Verification.Warning, "post-ping quota read failed") {
+		t.Fatal(res, err, reads)
 	}
 }
 

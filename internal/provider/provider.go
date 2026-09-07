@@ -220,8 +220,10 @@ func doGet(ctx context.Context, token string, buildReq func(token string) (*http
 	return lastBody, lastStatus, lastHeader, lastErr
 }
 
+type noUsageRetryKey struct{}
+
 func shouldRetryUsageGET(ctx context.Context, attempt, status int, err error) bool {
-	if attempt >= usageGETAttempts || ctx.Err() != nil {
+	if ctx.Value(noUsageRetryKey{}) == true || attempt >= usageGETAttempts || ctx.Err() != nil {
 		return false
 	}
 	if err != nil {

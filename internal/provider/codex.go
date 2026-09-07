@@ -302,6 +302,8 @@ type codexResetCredit struct {
 }
 
 func readCodexUsage(ctx context.Context, auth *auth.CodexAuth) ([]byte, codexUsageResp, error) {
+	// Codex quota retries belong to the watcher. Immediate 401 recovery remains.
+	ctx = context.WithValue(ctx, noUsageRetryKey{}, true)
 	var r codexUsageResp
 	if _, err := auth.Token(ctx); err != nil {
 		return nil, r, &AuthenticationError{Err: err}
