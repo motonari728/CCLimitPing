@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +10,15 @@ import (
 	"github.com/wavever/CCLimitPing/internal/provider"
 	"github.com/wavever/CCLimitPing/internal/usage"
 )
+
+func TestPrecheckFailureOutputSaysNotSent(t *testing.T) {
+	var out bytes.Buffer
+	err := fmt.Errorf("ping not sent: quota precheck failed: %w", &provider.UsageHTTPError{StatusCode: 403})
+	report(&out, enText, "codex", time.Now(), nil, err)
+	if got := out.String(); !strings.Contains(got, "ping not sent: quota precheck failed") || !strings.Contains(got, "403") || strings.Contains(got, "✓") {
+		t.Fatal(got)
+	}
+}
 
 func TestVerificationGuidance(t *testing.T) {
 	for _, tc := range []struct {
