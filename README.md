@@ -253,8 +253,8 @@ spark   ✓ turn completed (6.5s); quota start is checked separately
 ```
 
 For Codex/Spark, `limitping` automatically appends the `-c tui...` flags to
-enable Codex CLI's turn-completion notifications, so it can detect turn completion
-and exit immediately. The quota API separately verifies window activation.
+enable turn-completion notifications and stop the TUI when one is received.
+A 45-second safety timeout remains; this does not verify quota-window activation.
 Without a completion notification, the attempt returns a nonzero exit status,
 including on timeout or clean process exit; process failures also remain errors.
 

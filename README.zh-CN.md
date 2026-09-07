@@ -232,7 +232,8 @@ spark   → codex -c model_reasoning_effort=low -m gpt-5.3-codex-spark -c tui.no
 spark   ✓ turn completed (6.5s); quota start is checked separately
 ```
 
-对于 Codex/Spark，`limitping` 会自动追加 `-c tui...` 参数以启用 Codex CLI 的 turn 结束通知，从而检测轮次完成并立即退出。限额窗口是否启动由限额 API 单独确认。
+对于 Codex/Spark，`limitping` 会自动追加 `-c tui...` 参数，收到轮次完成通知后停止 TUI。
+仍保留 45 秒安全超时；这不代表已确认限额窗口启动。
 未收到完成通知时，即使进程正常退出，也会返回非零退出码；超时及进程错误同样按失败处理。
 
 ping 后请用 `status` 或 `bg status` 查看权威的 5h/周窗口状态。
