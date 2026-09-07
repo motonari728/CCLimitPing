@@ -138,7 +138,7 @@ func TestQuotaPrecheckFailureNeverSends(t *testing.T) {
 				reads := 0
 				useTransport(t, func(*http.Request) (*http.Response, error) {
 					reads++
-					return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader("{}")), Header: make(http.Header)}, nil
+					return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader("{}")), Header: http.Header{"Retry-After": []string{"120"}}}, nil
 				})
 				var reserve PingReservation
 				if automatic {
@@ -155,6 +155,9 @@ func TestQuotaPrecheckFailureNeverSends(t *testing.T) {
 				}
 				if reads != 1 || time.Since(start) > 5*time.Second {
 					t.Fatal("precheck retried or waited", reads)
+				}
+				if !httpErr.RetryAfter.After(start.Add(time.Minute)) {
+					t.Fatal("Retry-After was lost")
 				}
 				if _, err := os.Stat(marker); !os.IsNotExist(err) {
 					t.Fatal("CLI was executed", err)
