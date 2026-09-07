@@ -94,6 +94,7 @@ type TriggerResult struct {
 	TotalTokens   int
 	CostUSD       float64
 	Verification  *usage.Verification
+	PostcheckErr  error // quota-read failure, independent of the CLI outcome
 	StatusEnabled bool
 }
 

@@ -50,10 +50,53 @@ func TestQuotaRetryPolicy(t *testing.T) {
 	}
 }
 
-type verifiedStub struct{ stubProvider }
+type verifiedStub struct {
+	stubProvider
+	postcheckErr error
+}
 
 func (p *verifiedStub) TriggerWithReservation(ctx context.Context, _ provider.PingReservation) (*provider.TriggerResult, error) {
-	return p.Trigger(ctx, false)
+	res, err := p.Trigger(ctx, false)
+	if res != nil {
+		res.PostcheckErr = p.postcheckErr
+	}
+	return res, err
+}
+
+func TestPostcheckFailureSchedulesQuotaRetry(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		status           int
+		retryAfter, want time.Duration
+	}{
+		{"rate-limit-deadline", 429, 20 * time.Minute, 20 * time.Minute},
+		{"server-deadline", 503, time.Hour, time.Hour},
+		{"rate-limit-fallback", 429, 0, 5 * time.Minute},
+		{"permission-backoff", 403, 0, 30 * time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			start := time.Now()
+			err := &provider.UsageHTTPError{StatusCode: tc.status}
+			if tc.retryAfter > 0 {
+				err.RetryAfter = start.Add(tc.retryAfter)
+			}
+			p := &verifiedStub{stubProvider: stubProvider{usage: &usage.Usage{
+				Verification: &usage.Verification{Target: "weekly", Recovery: "ready"},
+			}}, postcheckErr: err}
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+			defer cancel()
+			s := New(testConfig(), []Target{{Provider: p}}, false, false, io.Discard)
+			s.live.enabled = true
+			s.runVerifiedTarget(ctx, Target{Provider: p}, p)
+			item := s.live.items[p.Name()]
+			if item.state != "verifying quota" || item.deadline.Sub(start.Add(tc.want)).Abs() > time.Second {
+				t.Fatalf("next read: %+v, want delay %s", item, tc.want)
+			}
+			if reads, sends := p.counts(); reads != 1 || sends != 1 {
+				t.Fatal(reads, sends)
+			}
+		})
+	}
 }
 
 func TestVerifiedSchedulerGates(t *testing.T) {
