@@ -97,11 +97,16 @@ type TriggerResult struct {
 	StatusEnabled bool
 }
 
-// VerifiedTrigger is implemented only by Codex-backed providers. Automatic
-// requests require fresh, bucket-specific start evidence before sending.
+// VerifiedTrigger uses the same ping path with a watcher-owned pre-send reservation.
 type VerifiedTrigger interface {
-	TriggerAutomatic(context.Context, float64, time.Duration) (*TriggerResult, error)
+	TriggerWithReservation(context.Context, PingReservation) (*TriggerResult, error)
 }
+
+// AuthenticationError preserves credential failures for watcher retry policy.
+type AuthenticationError struct{ Err error }
+
+func (e *AuthenticationError) Error() string { return e.Err.Error() }
+func (e *AuthenticationError) Unwrap() error { return e.Err }
 
 // UsageHTTPError preserves usage endpoint HTTP failures so callers can make
 // status-aware scheduling decisions instead of treating every failure alike.
@@ -150,7 +155,7 @@ func fetchWithAuth(ctx context.Context, src tokenSource, buildReq func(token str
 	if status == http.StatusUnauthorized {
 		t, rerr := src.Refresh(ctx)
 		if rerr != nil {
-			return nil, fmt.Errorf("unauthorized and refresh failed: %w", rerr)
+			return nil, &AuthenticationError{Err: fmt.Errorf("unauthorized and refresh failed: %w", rerr)}
 		}
 		token = t
 		if body, status, header, err = doGet(ctx, token, buildReq); err != nil {

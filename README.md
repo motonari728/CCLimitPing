@@ -126,6 +126,13 @@ To distinguish these patterns, limitping compares reads at least one minute apar
 Inconclusive results stay unconfirmed. `ping` returns without waiting that minute
 and suggests a later `status` check; `watch`/`bg` rechecks automatically.
 
+If the pre-ping quota check fails, both manual and automatic pings report the
+reason and stop without sending. Authentication reload/refresh on HTTP 401 is
+still attempted. Only the watcher waits before retrying: authentication/permission
+failures back off from 30 seconds to one hour; other read failures cap at ten
+minutes, with `Retry-After` respected. Restart the watcher to retry immediately
+after fixing access. Manual pings do not wait through this backoff.
+
 ## Install
 
 `limitping` ships as a single self-contained binary — **no Go required**.
