@@ -155,7 +155,11 @@ func (s *Scheduler) runVerifiedTarget(ctx context.Context, t Target, p provider.
 		if res != nil && res.Verification != nil && res.Verification.Warning != "" {
 			s.log.Printf("[%s] %s", name, res.Verification.Warning)
 		}
-		if !wait("verifying quota", codexstate.Interval) {
+		delay := codexstate.Interval
+		if res != nil && res.PostcheckErr != nil {
+			delay = reads.next(res.PostcheckErr, time.Now())
+		}
+		if !wait("verifying quota", delay) {
 			return
 		}
 	}

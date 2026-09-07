@@ -170,6 +170,7 @@ func pingVerified(ctx context.Context, name string, cfg config.ProviderConfig, d
 		pingStage(ctx, "checking quota after ping")
 		post, postAccount, err := boundedQuota(ctx, name, cfg)
 		if err != nil {
+			res.PostcheckErr = err
 			res.Verification.Warning = "post-ping quota read failed: " + err.Error()
 		} else if !changed && postAccount == account {
 			res.Verification = post.Verification

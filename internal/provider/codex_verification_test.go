@@ -193,11 +193,15 @@ func TestPostcheckFailureReportsSentWithoutRetry(t *testing.T) {
 		if reads > 1 {
 			status, body = 503, "{}"
 		}
-		return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+		return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body)), Header: http.Header{"Retry-After": []string{"1200"}}}, nil
 	})
 	res, err := NewCodex(config.ProviderConfig{}).Trigger(context.Background(), false)
 	if err != nil || reads != 2 || res == nil || !strings.Contains(res.Verification.Warning, "post-ping quota read failed") {
 		t.Fatal(res, err, reads)
+	}
+	var postErr *UsageHTTPError
+	if !errors.As(res.PostcheckErr, &postErr) || postErr.StatusCode != 503 || !postErr.RetryAfter.After(time.Now().Add(19*time.Minute)) {
+		t.Fatal("postcheck retry metadata lost", res.PostcheckErr)
 	}
 }
 
