@@ -87,15 +87,16 @@ type ResetCreditRedeemer interface {
 // consumed (parsed from the CLI's machine-readable output). CostUSD is 0 when
 // the provider doesn't report a cost (e.g. Codex).
 type TriggerResult struct {
-	Command       string
-	HasUsage      bool
-	InputTokens   int
-	OutputTokens  int
-	TotalTokens   int
-	CostUSD       float64
-	Verification  *usage.Verification
-	PostcheckErr  error // quota-read failure, independent of the CLI outcome
-	StatusEnabled bool
+	Command         string
+	HasUsage        bool
+	InputTokens     int
+	OutputTokens    int
+	TotalTokens     int
+	CostUSD         float64
+	Verification    *usage.Verification
+	PreVerification *usage.Verification
+	PostcheckErr    error // quota-read failure, independent of the CLI outcome
+	StatusEnabled   bool
 }
 
 // VerifiedTrigger uses the same ping path with a watcher-owned pre-send reservation.
