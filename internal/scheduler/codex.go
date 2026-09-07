@@ -45,7 +45,7 @@ func (s *Scheduler) runVerifiedTarget(ctx context.Context, t Target, p provider.
 			d := u.Weekly.Remaining()
 			if d <= 0 {
 				// A stale or missing reset must not turn quota reads into a tight loop.
-				d = time.Minute
+				d = 5 * time.Minute
 			}
 			if d > 5*time.Minute {
 				d = 5 * time.Minute

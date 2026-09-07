@@ -138,8 +138,8 @@ func TestVerifiedWeeklyExhaustionPolling(t *testing.T) {
 		reset time.Time
 		want  time.Duration
 	}{
-		{"missing-reset", time.Time{}, time.Minute},
-		{"stale-reset", time.Now().Add(-time.Minute), time.Minute},
+		{"missing-reset", time.Time{}, 5 * time.Minute},
+		{"stale-reset", time.Now().Add(-time.Minute), 5 * time.Minute},
 		{"near-reset", time.Now().Add(30 * time.Second), 30 * time.Second},
 		{"distant-reset", time.Now().Add(time.Hour), 5 * time.Minute},
 	} {
