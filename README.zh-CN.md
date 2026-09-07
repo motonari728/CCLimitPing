@@ -23,8 +23,8 @@ Claude Code、Codex 和 Spark 的订阅限额按 **5 小时滚动窗口**(外加
 
 ```
 claude  ✓ pinged (6.6s)
-codex   ✓ pinged (13.6s)
-spark   ✓ pinged (12.4s)
+codex   CLI trigger returned without error (13.6s); turn completion is not verified
+spark   CLI trigger returned without error (12.4s); turn completion is not verified
 ```
 
 ## 亮点
@@ -96,6 +96,25 @@ limitping bg logs -f
 
 Claude/Codex 的 token 直接复用官方工具(无需另外登录),遇到 401 会自动刷新。Spark 复用
 Codex token。
+
+### Codex/Spark 窗口验证
+
+用量为 0% 时，单次限额 API 响应不一定能判断窗口是否已启动。
+以下以五小时窗口的重置时间为例：
+
+| 情况（用量均为 0%） | 10:00 查询 | 10:01 查询 |
+| --- | --- | --- |
+| 已启动：重置时间固定 | 15:00 | 15:00 |
+| 未启动：重置时间向后滑动 | 15:00 | 15:01 |
+
+因此，limitping 会比较至少间隔一分钟的查询结果；证据不足时仍显示未确认。
+`ping` 不会等待这一分钟，而是提示稍后运行 `status`；`watch`/`bg` 会自动复查。
+
+发送前的限额检查失败时，手动和自动 ping 都会说明原因并停止，不发送请求。
+HTTP 401 仍会尝试重新加载或刷新凭据。只有 watcher 负责重试等待：
+认证或权限错误从 30 秒退避至最多一小时，其他读取错误最多十分钟，
+并遵守 `Retry-After`。修复访问权限后可重启 watcher 立即重试；
+手动 ping 不等待这些退避间隔。
 
 ## 安装
 
@@ -214,9 +233,9 @@ limitping uninstall            # 删除 limitping 以及配置/缓存(简称: rm
 claude  → claude --model haiku .
 claude  ✓ pinged (6.6s)
 codex   → codex -c model_reasoning_effort=low -m gpt-5.4-mini ok
-codex   ✓ pinged (13.6s)
+codex   CLI trigger returned without error (13.6s); turn completion is not verified
 spark   → codex -c model_reasoning_effort=low -m gpt-5.3-codex-spark ok
-spark   ✓ pinged (12.4s)
+spark   CLI trigger returned without error (12.4s); turn completion is not verified
 ```
 
 ping 后请用 `status` 或 `bg status` 查看权威的 5h/周窗口状态。

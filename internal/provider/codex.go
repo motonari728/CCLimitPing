@@ -52,8 +52,7 @@ const (
 // via the interactive, TTY-backed Codex CLI. Headless `codex exec` can consume
 // tokens without anchoring the subscription-backed Codex window.
 type Codex struct {
-	cfg  config.ProviderConfig
-	auth *auth.CodexAuth
+	cfg config.ProviderConfig
 
 	redeemMu   sync.Mutex
 	lastRedeem time.Time // last automatic redemption attempt, for the cooldown
@@ -61,8 +60,7 @@ type Codex struct {
 
 func NewCodex(cfg config.ProviderConfig) *Codex {
 	return &Codex{
-		cfg:  cfg,
-		auth: auth.NewCodexAuth(),
+		cfg: cfg,
 	}
 }
 
@@ -73,23 +71,16 @@ func (c *Codex) ActiveTask(ctx context.Context) (string, bool, error) {
 }
 
 func (c *Codex) ReadUsage(ctx context.Context) (*usage.Usage, error) {
-	body, r, err := readCodexUsage(ctx, c.auth)
-	if err != nil {
-		return nil, err
-	}
-	u := codexUsageToUsage(c.Name(), body, r, r.RateLimit)
-	if credits, err := readCodexResetCredits(ctx, c.auth); err == nil {
-		u.ResetCredits = credits
-	} else if r.ResetCredits != nil {
-		// The detail endpoint is private and may go away; the usage response
-		// itself now embeds the available count, so keep at least that.
-		u.ResetCredits = &usage.ResetCredits{AvailableCount: r.ResetCredits.AvailableCount}
-	}
-	return u, nil
+	u, _, err := readVerifiedUsage(ctx, c.Name(), c.cfg, true)
+	return u, err
 }
 
 func (c *Codex) Trigger(ctx context.Context, dryRun bool) (*TriggerResult, error) {
-	return triggerCodex(ctx, c.cfg, dryRun)
+	return pingVerified(ctx, c.Name(), c.cfg, dryRun, nil)
+}
+
+func (c *Codex) TriggerWithReservation(ctx context.Context, reserve PingReservation) (*TriggerResult, error) {
+	return pingVerified(ctx, c.Name(), c.cfg, false, reserve)
 }
 
 // RedeemResetCredit spends the next available reset credit right now. Each call
@@ -107,6 +98,9 @@ func (c *Codex) AutoRedeemResetCredit(ctx context.Context, u *usage.Usage) (stri
 	if !ok {
 		return "", nil
 	}
+	if u.QuotaAccount == "" {
+		return "", fmt.Errorf("automatic reset credit requires an identified quota observation")
+	}
 	c.redeemMu.Lock()
 	if time.Since(c.lastRedeem) < codexRedeemCooldown {
 		c.redeemMu.Unlock()
@@ -114,7 +108,7 @@ func (c *Codex) AutoRedeemResetCredit(ctx context.Context, u *usage.Usage) (stri
 	}
 	c.lastRedeem = time.Now()
 	c.redeemMu.Unlock()
-	return c.consumeResetCredit(ctx, creditIdempotencyKey(credit))
+	return c.consumeResetCreditFor(ctx, creditIdempotencyKey(credit), u.QuotaAccount)
 }
 
 // consumeResetCredit redeems one banked reset credit. The credit id is
@@ -122,12 +116,21 @@ func (c *Codex) AutoRedeemResetCredit(ctx context.Context, u *usage.Usage) (stri
 // same one the policy targets — so we don't depend on an id field this private
 // endpoint doesn't document.
 func (c *Codex) consumeResetCredit(ctx context.Context, idempotencyKey string) (string, error) {
+	return c.consumeResetCreditFor(ctx, idempotencyKey, "")
+}
+
+func (c *Codex) consumeResetCreditFor(ctx context.Context, idempotencyKey, expectedAccount string) (string, error) {
 	payload, err := json.Marshal(map[string]string{"idempotency_key": idempotencyKey})
 	if err != nil {
 		return "", err
 	}
-	accountID, _ := c.auth.AccountID(ctx)
-	body, err := fetchWithAuth(ctx, c.auth, func(token string) (*http.Request, error) {
+	a := auth.NewCodexAuth()
+	accountID := ""
+	body, err := fetchWithAuth(ctx, a, func(token string) (*http.Request, error) {
+		accountID, _ = a.AccountID(ctx)
+		if expectedAccount != "" && accountID != expectedAccount {
+			return nil, fmt.Errorf("Codex account changed; automatic reset credit cancelled")
+		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, codexConsumeURL(), bytes.NewReader(payload))
 		if err != nil {
 			return nil, err
@@ -155,7 +158,13 @@ func (c *Codex) consumeResetCredit(ctx context.Context, idempotencyKey string) (
 	if r.Code == "" {
 		return "", fmt.Errorf("codex reset credit consume: no outcome in response: %s", truncate(body, 200))
 	}
-	return normalizeRedeemOutcome(r.Code), nil
+	outcome := normalizeRedeemOutcome(r.Code)
+	if outcome == RedeemReset {
+		if store, err := quotaStore(); err == nil {
+			_ = store.Invalidate(accountID, "codex")
+		}
+	}
+	return outcome, nil
 }
 
 // normalizeRedeemOutcome folds the two spellings of the same outcomes into the
@@ -193,8 +202,7 @@ func creditIdempotencyKey(c usage.ResetCredit) string {
 // Spark is a separate provider backed by Codex auth and CLI transport.
 // Its usage window is the Spark-specific entry inside the Codex usage payload.
 type Spark struct {
-	cfg  config.ProviderConfig
-	auth *auth.CodexAuth
+	cfg config.ProviderConfig
 }
 
 // NewSpark returns the Spark provider. It shares Codex credentials and the
@@ -204,8 +212,7 @@ func NewSpark(cfg config.ProviderConfig) *Spark {
 		cfg.Model = sparkDefaultModel
 	}
 	return &Spark{
-		cfg:  cfg,
-		auth: auth.NewCodexAuth(),
+		cfg: cfg,
 	}
 }
 
@@ -216,19 +223,16 @@ func (s *Spark) ActiveTask(ctx context.Context) (string, bool, error) {
 }
 
 func (s *Spark) ReadUsage(ctx context.Context) (*usage.Usage, error) {
-	body, r, err := readCodexUsage(ctx, s.auth)
-	if err != nil {
-		return nil, err
-	}
-	rateLimit, err := sparkRateLimitFromResponse(r, s.cfg.Model)
-	if err != nil {
-		return nil, err
-	}
-	return codexUsageToUsage(s.Name(), body, r, rateLimit), nil
+	u, _, err := readVerifiedUsage(ctx, s.Name(), s.cfg, false)
+	return u, err
 }
 
 func (s *Spark) Trigger(ctx context.Context, dryRun bool) (*TriggerResult, error) {
-	return triggerCodex(ctx, s.cfg, dryRun)
+	return pingVerified(ctx, s.Name(), s.cfg, dryRun, nil)
+}
+
+func (s *Spark) TriggerWithReservation(ctx context.Context, reserve PingReservation) (*TriggerResult, error) {
+	return pingVerified(ctx, s.Name(), s.cfg, false, reserve)
 }
 
 func codexActiveTask(_ context.Context) (string, bool, error) {
@@ -298,9 +302,14 @@ type codexResetCredit struct {
 }
 
 func readCodexUsage(ctx context.Context, auth *auth.CodexAuth) ([]byte, codexUsageResp, error) {
+	// Codex quota retries belong to the watcher. Immediate 401 recovery remains.
+	ctx = context.WithValue(ctx, noUsageRetryKey{}, true)
 	var r codexUsageResp
-	accountID, _ := auth.AccountID(ctx)
+	if _, err := auth.Token(ctx); err != nil {
+		return nil, r, &AuthenticationError{Err: err}
+	}
 	body, err := fetchWithAuth(ctx, auth, func(token string) (*http.Request, error) {
+		accountID, _ := auth.AccountID(ctx)
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, codexUsageURL(), nil)
 		if err != nil {
 			return nil, err
@@ -325,8 +334,8 @@ func readCodexUsage(ctx context.Context, auth *auth.CodexAuth) ([]byte, codexUsa
 
 func readCodexResetCredits(ctx context.Context, auth *auth.CodexAuth) (*usage.ResetCredits, error) {
 	var r codexResetCreditsResp
-	accountID, _ := auth.AccountID(ctx)
 	body, err := fetchWithAuth(ctx, auth, func(token string) (*http.Request, error) {
+		accountID, _ := auth.AccountID(ctx)
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, codexResetCreditsURL(), nil)
 		if err != nil {
 			return nil, err
