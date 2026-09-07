@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -297,7 +298,7 @@ func TestCodexResetCreditsURLFromBase(t *testing.T) {
 
 func TestParseCodexBaseURL(t *testing.T) {
 	contents := `
-model = "gpt-5.6-luna"
+model = "gpt-5.4-mini"
 chatgpt_base_url = "https://api.openai.com"
 `
 	if got := parseCodexBaseURL(contents); got != "https://api.openai.com" {
@@ -333,6 +334,9 @@ func TestCodexTriggerDryRunUsesInteractiveCommand(t *testing.T) {
 }
 
 func TestCodexTriggerWaitsForTurnCompleteNotification(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires Unix PTY support")
+	}
 	dir := t.TempDir()
 	argsPath := filepath.Join(dir, "args")
 	turnPath := filepath.Join(dir, "turn")

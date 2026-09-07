@@ -252,8 +252,8 @@ spark   CLI trigger returned without error (6.5s); turn completion is not verifi
 ```
 
 For Codex/Spark, `limitping` automatically appends the `-c tui...` flags to
-enable Codex CLI's turn-completion notifications, so it can detect ping success
-and exit immediately.
+enable turn-completion notifications and stop the TUI when one is received.
+A 45-second safety timeout remains; this does not verify quota-window activation.
 
 Use `status` or `bg status` for the authoritative 5h/weekly window view after a
 ping.

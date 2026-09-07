@@ -232,7 +232,8 @@ spark   → codex -c model_reasoning_effort=low -m gpt-5.3-codex-spark -c tui.no
 spark   CLI trigger returned without error (6.5s); turn completion is not verified
 ```
 
-对于 Codex/Spark，`limitping` 会自动追加 `-c tui...` 参数以启用 Codex CLI 的 turn 结束通知，从而检测 ping 成功并立即退出。
+对于 Codex/Spark，`limitping` 会自动追加 `-c tui...` 参数，收到轮次完成通知后停止 TUI。
+仍保留 45 秒安全超时；这不代表已确认限额窗口启动。
 
 ping 后请用 `status` 或 `bg status` 查看权威的 5h/周窗口状态。
 
