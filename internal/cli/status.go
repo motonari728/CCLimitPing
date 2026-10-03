@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
+	"os"
 	"strings"
 	"time"
 
@@ -13,8 +15,14 @@ import (
 
 	"github.com/wavever/CCLimitPing/internal/config"
 	"github.com/wavever/CCLimitPing/internal/provider"
+	"github.com/wavever/CCLimitPing/internal/spend"
 	"github.com/wavever/CCLimitPing/internal/usage"
 )
+
+// spendTimeout caps the local transcript scan. It runs alongside the usage
+// fetch, so it normally costs nothing in wall time; the cap is there so a huge
+// or unreadable transcript history cannot hold up the whole command.
+const spendTimeout = 20 * time.Second
 
 func newStatusCmd() *cobra.Command {
 	var verbose bool
@@ -27,6 +35,9 @@ func newStatusCmd() *cobra.Command {
 		Long:    text.statusLong,
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if !jsonOut {
+				updateNotice(cmd.Context(), cmd.OutOrStdout(), text, os.Stdin)
+			}
 			cfg, err := config.Load()
 			if err != nil {
 				return err
@@ -57,12 +68,19 @@ func runStatus(ctx context.Context, out, progress io.Writer, text cliText, provi
 	failed := 0
 	entries := make([]statusJSON, 0, len(providers))
 	for _, p := range providers {
+		// Started first and collected last: reading the day's transcripts is
+		// pure local I/O, so it rides along with the network round trip instead
+		// of adding to it.
+		spendCh := make(chan *spend.Day, 1)
+		go func() { spendCh <- todaySpend(ctx, p.Name()) }()
+
 		if text.statusFetchingFmt != "" {
 			fmt.Fprintf(progress, text.statusFetchingFmt, p.Name())
 		}
 		readCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		u, err := p.ReadUsage(readCtx)
 		cancel()
+		day := <-spendCh
 		if err != nil {
 			failed++
 			if jsonOut {
@@ -76,10 +94,10 @@ func runStatus(ctx context.Context, out, progress io.Writer, text cliText, provi
 			if u.Verification != nil && u.Verification.Warning != "" {
 				fmt.Fprintln(diagnostics, u.Verification.Warning)
 			}
-			entries = append(entries, newStatusJSON(u, verbose))
+			entries = append(entries, newStatusJSON(u, verbose, day))
 			continue
 		}
-		printUsage(out, text, u, verbose, display)
+		printUsage(out, text, u, verbose, display, day)
 	}
 	if jsonOut {
 		enc := json.NewEncoder(out)
@@ -112,6 +130,7 @@ type statusJSON struct {
 	Weekly       *windowJSON       `json:"weekly,omitempty"`
 	Credits      *creditsJSON      `json:"credits,omitempty"`
 	ResetCredits *resetCreditsJSON `json:"reset_credits,omitempty"`
+	Today        *todayJSON        `json:"today,omitempty"`
 	LimitReached bool              `json:"limit_reached"`
 	FetchedAt    string            `json:"fetched_at,omitempty"`
 	Raw          json.RawMessage   `json:"raw,omitempty"`
@@ -147,7 +166,29 @@ type resetCreditJSON struct {
 	RedeemedAt string `json:"redeemed_at,omitempty"`
 }
 
-func newStatusJSON(u *usage.Usage, verbose bool) statusJSON {
+// todayJSON is the local day's token consumption, read from the provider CLI's
+// own transcripts. cost_usd is what those tokens would cost at API rates;
+// cost_complete is false when a model that ran had no published rates, which
+// makes cost_usd a lower bound.
+type todayJSON struct {
+	Date                string           `json:"date"`
+	InputTokens         int              `json:"input_tokens"`
+	CacheReadTokens     int              `json:"cache_read_tokens"`
+	CacheCreationTokens int              `json:"cache_creation_tokens"`
+	OutputTokens        int              `json:"output_tokens"`
+	TotalTokens         int              `json:"total_tokens"`
+	CostUSD             float64          `json:"cost_usd"`
+	CostComplete        bool             `json:"cost_complete"`
+	Models              []todayModelJSON `json:"models,omitempty"`
+}
+
+type todayModelJSON struct {
+	Model       string  `json:"model,omitempty"`
+	TotalTokens int     `json:"total_tokens"`
+	CostUSD     float64 `json:"cost_usd"`
+}
+
+func newStatusJSON(u *usage.Usage, verbose bool, day *spend.Day) statusJSON {
 	s := statusJSON{
 		Provider:     u.Provider,
 		Plan:         u.Plan,
@@ -178,6 +219,7 @@ func newStatusJSON(u *usage.Usage, verbose bool) statusJSON {
 	if u.ResetCredits != nil {
 		s.ResetCredits = newResetCreditsJSON(u.ResetCredits)
 	}
+	s.Today = newTodayJSON(day)
 	if verbose && json.Valid(u.Raw) {
 		s.Raw = json.RawMessage(u.Raw)
 	}
@@ -224,6 +266,39 @@ func newResetCreditsJSON(rc *usage.ResetCredits) *resetCreditsJSON {
 	return out
 }
 
+// newTodayJSON renders the day's spend, or nothing at all when the provider's
+// CLI has never run on this machine — an absent key says "no local data", which
+// zeros would misreport as "nothing was spent".
+func newTodayJSON(day *spend.Day) *todayJSON {
+	if day == nil || !day.Available {
+		return nil
+	}
+	out := &todayJSON{
+		Date:                day.Date.Format("2006-01-02"),
+		InputTokens:         day.Tokens.Input,
+		CacheReadTokens:     day.Tokens.CacheRead,
+		CacheCreationTokens: day.Tokens.CacheWrite,
+		OutputTokens:        day.Tokens.Output,
+		TotalTokens:         day.Tokens.Total(),
+		CostUSD:             roundUSD(day.CostUSD),
+		CostComplete:        day.Priced,
+	}
+	for _, m := range day.Models {
+		out.Models = append(out.Models, todayModelJSON{
+			Model:       m.Model,
+			TotalTokens: m.Tokens.Total(),
+			CostUSD:     roundUSD(m.CostUSD),
+		})
+	}
+	return out
+}
+
+// roundUSD trims the float noise (0.30000000000000004) that summing per-model
+// costs leaves behind, at a precision finer than any real per-day total needs.
+func roundUSD(v float64) float64 {
+	return math.Round(v*1e6) / 1e6
+}
+
 func timeJSON(t time.Time) string {
 	if t.IsZero() {
 		return ""
@@ -231,7 +306,7 @@ func timeJSON(t time.Time) string {
 	return t.Format(time.RFC3339)
 }
 
-func printUsage(out io.Writer, text cliText, u *usage.Usage, verbose bool, display string) {
+func printUsage(out io.Writer, text cliText, u *usage.Usage, verbose bool, display string, day *spend.Day) {
 	display = normalizeUsageDisplay(display)
 	plan := u.Plan
 	if plan != "" {
@@ -266,6 +341,7 @@ func printUsage(out io.Writer, text cliText, u *usage.Usage, verbose bool, displ
 			fmt.Fprintln(out, "  "+v.Warning)
 		}
 	}
+	printToday(out, text, day, verbose)
 	if u.Credits != nil && (u.Credits.HasCredits || u.Credits.Unlimited) {
 		if u.Credits.Unlimited {
 			fmt.Fprint(out, text.statusCreditsUnlimited)
@@ -278,6 +354,78 @@ func printUsage(out io.Writer, text cliText, u *usage.Usage, verbose bool, displ
 		fmt.Fprintf(out, "  raw: %s\n", string(u.Raw))
 	}
 	fmt.Fprintln(out)
+}
+
+// todaySpend reads what the provider's local CLI sessions consumed today. It is
+// a best-effort extra: a transcript that cannot be read costs the line, never
+// the status command.
+func todaySpend(ctx context.Context, name string) *spend.Day {
+	ctx, cancel := context.WithTimeout(ctx, spendTimeout)
+	defer cancel()
+	day, err := spend.Today(ctx, name)
+	if err != nil && day.Empty() {
+		return nil
+	}
+	return &day
+}
+
+// printToday renders the day's token consumption and what it would have cost at
+// API rates — the usage endpoints report percentages only, so this is the one
+// place a subscription's actual consumption becomes a number. Nothing is
+// printed for a provider whose CLI has never run on this machine: silence is
+// honest there, while "0 tok" would claim a quiet day.
+func printToday(out io.Writer, text cliText, day *spend.Day, verbose bool) {
+	if day == nil || !day.Available {
+		return
+	}
+	fmt.Fprintf(out, text.statusTodayLineFmt, fmtSpend(text, day.Tokens.Total(), day.CostUSD))
+	if !verbose || day.Empty() {
+		return
+	}
+	fmt.Fprintf(out, text.statusTodayBreakdownFmt,
+		humanTokens(day.Tokens.Input), humanTokens(day.Tokens.CacheRead),
+		humanTokens(day.Tokens.CacheWrite), humanTokens(day.Tokens.Output))
+	for _, m := range day.Models {
+		name := m.Model
+		if name == "" {
+			name = text.statusTodayUnknownModel
+		}
+		fmt.Fprintf(out, text.statusTodayModelFmt, name, fmtSpend(text, m.Tokens.Total(), m.CostUSD))
+	}
+}
+
+// fmtSpend renders "47.9M tok  ≈ $38.15", dropping the cost when the model's
+// rates are unknown (an unpublished or brand-new model).
+func fmtSpend(text cliText, tokens int, costUSD float64) string {
+	s := fmt.Sprintf(text.statusTodayTokensFmt, humanTokens(tokens))
+	if costUSD > 0 {
+		s += fmt.Sprintf(text.statusTodayCostFmt, fmtUSD(costUSD))
+	}
+	return s
+}
+
+// humanTokens keeps the status line scannable: exact below 10k, where the digits
+// are still readable, and abbreviated above it. `--json` carries exact counts.
+func humanTokens(n int) string {
+	switch {
+	case n < 10_000:
+		return humanInt(n)
+	case n < 1_000_000:
+		return fmt.Sprintf("%.1fK", float64(n)/1e3)
+	case n < 1_000_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1e6)
+	default:
+		return fmt.Sprintf("%.2fB", float64(n)/1e9)
+	}
+}
+
+// fmtUSD shows cents, falling back to four decimals for the sums too small to
+// register in them.
+func fmtUSD(v float64) string {
+	if v < 0.01 {
+		return fmt.Sprintf("%.4f", v)
+	}
+	return fmt.Sprintf("%.2f", v)
 }
 
 func printResetCredits(out io.Writer, text cliText, rc *usage.ResetCredits) {

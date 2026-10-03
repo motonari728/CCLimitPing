@@ -9,17 +9,22 @@ Depending on the providers you enable, `limitping` may read:
 
 - Claude Code OAuth credentials from the macOS Keychain or
   `~/.claude/.credentials.json`
-- Codex/Spark OAuth credentials from `~/.codex/auth.json` or
+- Codex OAuth credentials from `~/.codex/auth.json` or
   `$CODEX_HOME/auth.json`
 - Your `limitping` configuration from `~/.config/limitping/config.toml`
 - Provider usage responses used to calculate reset times
+- Claude Code / Codex session transcripts (`~/.claude/projects`,
+  `~/.codex/sessions`, honoring `$CLAUDE_CONFIG_DIR` / `$CODEX_HOME`) when
+  `status` totals the day's token usage. Only the token-count and model fields
+  of today's records are read; prompts and responses are not parsed, and nothing
+  from these files leaves the machine
 
 The tool may write:
 
 - `~/.config/limitping/config.toml` when you run `limitping config init`
 - `~/.config/limitping/litellm_prices.json`, a cached copy of the LiteLLM pricing
-  dataset used for Codex cost estimates
-- Rotated Claude/Codex/Spark OAuth tokens back to the same credential stores
+  dataset used for ping and daily cost estimates
+- Rotated Claude/Codex OAuth tokens back to the same credential stores
   used by the official CLIs, when a refresh is required
 
 ## Network Requests
@@ -27,10 +32,10 @@ The tool may write:
 `limitping` makes network requests only to support the command you run:
 
 - Anthropic Claude Code OAuth and usage endpoints
-- ChatGPT/Codex/Spark OAuth and usage endpoints
+- ChatGPT/Codex OAuth and usage endpoints
 - GitHub releases, when using `install.sh`
-- The LiteLLM pricing dataset on GitHub, for Codex/Spark equivalent API-cost
-  estimates
+- The LiteLLM pricing dataset on GitHub, for equivalent API-cost estimates
+  (per ping and per day)
 
 The tool does not send provider credentials to unrelated services.
 

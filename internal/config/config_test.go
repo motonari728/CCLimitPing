@@ -39,9 +39,9 @@ func TestLoadReturnsDefaultsWithoutFile(t *testing.T) {
 		cfg.ResetBuffer.Duration != def.ResetBuffer.Duration || cfg.Notify != def.Notify {
 		t.Fatalf("Load() = %+v, want defaults %+v", cfg, def)
 	}
-	if !cfg.Claude.Enabled || !cfg.Codex.Enabled || cfg.Spark.Enabled {
-		t.Fatalf("default provider enablement = claude:%t codex:%t spark:%t, want true/true/false",
-			cfg.Claude.Enabled, cfg.Codex.Enabled, cfg.Spark.Enabled)
+	if !cfg.Claude.Enabled || !cfg.Codex.Enabled {
+		t.Fatalf("default provider enablement = claude:%t codex:%t, want both true",
+			cfg.Claude.Enabled, cfg.Codex.Enabled)
 	}
 }
 
@@ -68,8 +68,11 @@ enabled = false
 	if cfg.Claude.Enabled {
 		t.Fatal("claude.enabled = true, want the file's false to win")
 	}
-	// Untouched fields keep their defaults.
-	if cfg.Claude.Model != "haiku" || cfg.Codex.Model != "gpt-5.6-luna" || cfg.UsageDisplay != "used" {
+	// Untouched fields keep their defaults. Compared against Default() rather
+	// than literals so retiring a provider model doesn't break this test.
+	def := Default()
+	if cfg.Claude.Model != def.Claude.Model || cfg.Codex.Model != def.Codex.Model ||
+		cfg.UsageDisplay != def.UsageDisplay {
 		t.Fatalf("defaults not preserved: claude.model=%q codex.model=%q usage_display=%q",
 			cfg.Claude.Model, cfg.Codex.Model, cfg.UsageDisplay)
 	}
@@ -141,7 +144,7 @@ func TestWriteDefaultThenLoad(t *testing.T) {
 		cfg.ResetBuffer.Duration != def.ResetBuffer.Duration ||
 		cfg.Claude.Model != def.Claude.Model ||
 		cfg.Codex.Model != def.Codex.Model ||
-		cfg.Spark.Enabled != def.Spark.Enabled {
+		cfg.Codex.AutoRedeem != def.Codex.AutoRedeem {
 		t.Fatalf("written default drifted from Default(): %+v vs %+v", cfg, def)
 	}
 }

@@ -43,13 +43,14 @@ checksum:
   name_template: "checksums.txt"
 
 changelog:
+  # The commit log IS the release notes — there is no hand-maintained changelog
+  # to drift from it, so write commit subjects that read as release notes.
+  # (The old conventional-commit excludes never matched anything here: this repo
+  # writes plain imperative subjects, not `docs:` / `chore:` prefixes.)
   sort: asc
   filters:
     exclude:
-      - "^docs:"
-      - "^test:"
-      - "^chore:"
-      - "^ci:"
+      - "^Merge "
 
 release:
   github:

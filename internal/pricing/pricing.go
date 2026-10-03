@@ -29,30 +29,68 @@ const cacheTTL = 24 * time.Hour
 type Price struct {
 	InputPerToken      float64
 	CachedReadPerToken float64
+	CacheWritePerToken float64
 	OutputPerToken     float64
 }
 
-// Cost returns the USD cost for a request. inputTotal includes the cached
-// portion; output already includes reasoning tokens (LiteLLM bills reasoning as
-// output, so callers must not add them again).
+// Tokens is a token count split by billing bucket. Input counts only the
+// portion billed at the full input rate — the cached and cache-written parts
+// are separate, because Anthropic bills all three differently. Output already
+// includes reasoning tokens (LiteLLM bills reasoning as output, so callers must
+// not add them again).
+type Tokens struct {
+	Input      int
+	CacheRead  int
+	CacheWrite int
+	Output     int
+}
+
+// Total is every token in t, whatever it was billed at.
+func (t Tokens) Total() int {
+	return t.Input + t.CacheRead + t.CacheWrite + t.Output
+}
+
+// Add accumulates o into t.
+func (t *Tokens) Add(o Tokens) {
+	t.Input += o.Input
+	t.CacheRead += o.CacheRead
+	t.CacheWrite += o.CacheWrite
+	t.Output += o.Output
+}
+
+// CostOf returns the USD cost of t at p's rates. A bucket whose rate the
+// dataset leaves unset (e.g. OpenAI models, which do not price cache writes
+// separately) bills at the plain input rate.
+func (p Price) CostOf(t Tokens) float64 {
+	cacheRead := p.CachedReadPerToken
+	if cacheRead == 0 {
+		cacheRead = p.InputPerToken
+	}
+	cacheWrite := p.CacheWritePerToken
+	if cacheWrite == 0 {
+		cacheWrite = p.InputPerToken
+	}
+	return float64(t.Input)*p.InputPerToken +
+		float64(t.CacheRead)*cacheRead +
+		float64(t.CacheWrite)*cacheWrite +
+		float64(t.Output)*p.OutputPerToken
+}
+
+// Cost returns the USD cost for a request whose inputTotal includes the cached
+// portion.
 func (p Price) Cost(inputTotal, cached, output int) float64 {
 	nonCached := inputTotal - cached
 	if nonCached < 0 {
 		nonCached = 0
 	}
-	cacheRate := p.CachedReadPerToken
-	if cacheRate == 0 {
-		cacheRate = p.InputPerToken // fall back to input rate when unset
-	}
-	return float64(nonCached)*p.InputPerToken +
-		float64(cached)*cacheRate +
-		float64(output)*p.OutputPerToken
+	return p.CostOf(Tokens{Input: nonCached, CacheRead: cached, Output: output})
 }
 
 type entry struct {
-	InputCostPerToken       float64 `json:"input_cost_per_token"`
-	OutputCostPerToken      float64 `json:"output_cost_per_token"`
-	CacheReadInputTokenCost float64 `json:"cache_read_input_token_cost"`
+	InputCostPerToken           float64 `json:"input_cost_per_token"`
+	OutputCostPerToken          float64 `json:"output_cost_per_token"`
+	CacheReadInputTokenCost     float64 `json:"cache_read_input_token_cost"`
+	CacheCreationInputTokenCost float64 `json:"cache_creation_input_token_cost"`
 }
 
 // Fetcher loads and caches the LiteLLM dataset.
@@ -94,6 +132,7 @@ func (f *Fetcher) Lookup(ctx context.Context, model string) (Price, bool) {
 			return Price{
 				InputPerToken:      e.InputCostPerToken,
 				CachedReadPerToken: e.CacheReadInputTokenCost,
+				CacheWritePerToken: e.CacheCreationInputTokenCost,
 				OutputPerToken:     e.OutputCostPerToken,
 			}, true
 		}

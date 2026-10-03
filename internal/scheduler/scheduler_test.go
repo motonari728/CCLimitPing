@@ -113,6 +113,30 @@ func TestRunTargetSleepsWhileFiveHourWindowActive(t *testing.T) {
 	}
 }
 
+// A window that only a limitping ping has touched reports 0% used — Codex
+// rounds used_percent to whole numbers, so ~20k tokens is 0. The scheduler must
+// still see it as running; reading it as "free" made the loop fall through to a
+// window estimated from the ping time, walking the schedule forward by a ping's
+// latency every cycle.
+func TestRunTargetSleepsWhileWindowRunsAtZeroPercent(t *testing.T) {
+	p := &stubProvider{
+		usage: &usage.Usage{
+			FiveHour: usage.Window{
+				UsedPercent:   0,
+				ResetsAt:      time.Now().Add(time.Second),
+				WindowSeconds: 18000,
+			},
+		},
+	}
+	stop := runStub(t, Target{Provider: p})
+	defer stop()
+
+	reads, triggers := settleAndCount(t, p)
+	if reads != 1 || triggers != 0 {
+		t.Fatalf("a running window at 0%% should be waited out, not re-pinged; reads=%d triggers=%d", reads, triggers)
+	}
+}
+
 func TestRunTargetWeeklyOnlySleepsUntilWeeklyReset(t *testing.T) {
 	p := &stubProvider{
 		usage: &usage.Usage{
@@ -387,12 +411,53 @@ func TestUsageRateLimitWait(t *testing.T) {
 	}
 }
 
+func TestPingVisibilityWait(t *testing.T) {
+	now := time.Now()
+	est := now.Add(5 * time.Hour)
+
+	// While confirming, the wait is short: the point is to re-read until the
+	// provider publishes the real reset time, not to sit out a whole window.
+	wait, confirming := pingVisibilityWait(est, 10*time.Second, 0, now)
+	if !confirming || wait != pingConfirm {
+		t.Fatalf("first attempt = (%v, %t), want (%v, true)", wait, confirming, pingConfirm)
+	}
+	if _, confirming := pingVisibilityWait(est, 10*time.Second, pingConfirmMax-1, now); !confirming {
+		t.Fatal("last confirmation attempt should still confirm")
+	}
+
+	// Out of attempts: fall back to the estimated window, buffer included.
+	wait, confirming = pingVisibilityWait(est, 10*time.Second, pingConfirmMax, now)
+	if confirming || wait != 5*time.Hour+10*time.Second {
+		t.Fatalf("exhausted attempts = (%v, %t), want (5h10s, false)", wait, confirming)
+	}
+
+	// A near-boundary estimate is never stretched to the confirm interval.
+	if wait, _ := pingVisibilityWait(now.Add(2*time.Second), 0, 0, now); wait != 2*time.Second {
+		t.Fatalf("short estimate = %v, want 2s", wait)
+	}
+}
+
 func TestWindowLen(t *testing.T) {
 	if got := windowLen(usage.Window{WindowSeconds: 18000}); got != 5*time.Hour {
 		t.Fatalf("windowLen = %v, want 5h", got)
 	}
 	if got := windowLen(usage.Window{}); got != defaultWindow {
 		t.Fatalf("windowLen fallback = %v, want %v", got, defaultWindow)
+	}
+}
+
+// The watch log is the only record an unattended run leaves, so a ping has to
+// say which model it spent quota on.
+func TestTriggerModel(t *testing.T) {
+	if got := triggerModel(nil); got != "" {
+		t.Fatalf("triggerModel(nil) = %q", got)
+	}
+	if got := triggerModel(&provider.TriggerResult{}); got != "" {
+		t.Fatalf("triggerModel(unresolved) = %q, want empty", got)
+	}
+	res := &provider.TriggerResult{Model: "gpt-5.6-sol"}
+	if got, want := triggerModel(res), " (model: gpt-5.6-sol)"; got != want {
+		t.Fatalf("triggerModel = %q, want %q", got, want)
 	}
 }
 

@@ -12,10 +12,10 @@
 ![Go](https://img.shields.io/badge/Go-1.25%2B-00ADD8?logo=go&logoColor=white)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 
-在上一个窗口重置的瞬间,立即启动下一个 **Claude Code** / **Codex** / **Spark** 限额窗口。
+在上一个窗口重置的瞬间,立即启动下一个 **Claude Code** / **Codex** 限额窗口。
 
-Claude Code、Codex 和 Spark 的订阅限额按 **5 小时滚动窗口**(外加周限额)计算。新的 5h 窗口
-不会因为上一个窗口重置就自动开始,而是从你下一次真正发起计费请求时才开始。如果你隔了
+Claude Code 和 Codex 的订阅限额按 **5 小时滚动窗口**(外加周限额)计算。新的 5h 窗口不会
+因为上一个窗口重置就自动开始,而是从你下一次真正发起计费请求时才开始。如果你隔了
 几个小时才再次使用,这段空档就被浪费了,窗口节奏也会越拖越偏。
 
 `limitping` 会读取每个 Provider 的重置时间,并在窗口翻篇后通过官方 CLI 发一条极小请求。
@@ -23,8 +23,7 @@ Claude Code、Codex 和 Spark 的订阅限额按 **5 小时滚动窗口**(外加
 
 ```
 claude  ✓ pinged (6.6s)
-codex   CLI trigger returned without error (13.6s); turn completion is not verified
-spark   CLI trigger returned without error (12.4s); turn completion is not verified
+codex   ✓ turn completed (14s, 19,426 tok (in 19,414 / out 12), $0.0023); quota start is checked separately
 ```
 
 ## 亮点
@@ -33,10 +32,16 @@ spark   CLI trigger returned without error (12.4s); turn completion is not verif
 - 支持多种运行方式:手动 `ping`、前台 `watch`,或用 `bg start` 后台常驻;配套
   `bg status`、`bg logs -f`、`bg stop` 管理。
 - `status` / `bg status` 会展示 5h 与周用量、重置倒计时以及后台监听状态。
+- 统计今日 token 消耗与按 API 价折算的预估费用,数据取自 CLI 自己的本地会话记录——
+  这是百分比永远给不出的那个数字。
 - 通过只读用量端点读取状态,通过官方 Claude Code / Codex CLI 触发窗口,复用已有登录态。
-- 通过 CLI 钩子识别正在进行中的 Claude/Codex 会话;Spark 通过 Codex CLI 运行,复用 Codex 钩子信号。
+- 通过 CLI 钩子识别正在进行中的 Claude/Codex 会话,不会打断本来就要自己起算窗口的会话。
 - 自动续跑挂起的任务:`limitping continue <provider>` 代理官方 CLI,在 5h 限额恢复的
   瞬间自动输入续跑消息,让整夜的任务不用一直停在限额处等你回来。
+- 在 Codex 重置卡过期前用掉它:`limitping redeem` 手动兑换;开启 `auto_redeem = true`
+  后,`watch` / `continue` 会在卡临近过期时自动使用 —— 攒着的重置卡一旦过期就归零。
+  因为兑换不可撤销,默认关闭。
+- 命令名可以更短:所有命令都能用 `lmp` 触发(例如 `lmp s`、`lmp w`)。
 - 内置 dry-run、周限额保护、重置缓冲、低成本模型默认值、macOS 通知、本地配置,且不带遥测。
 
 ## 快速开始
@@ -62,8 +67,7 @@ limitping bg logs -f
 | Provider | 读取用量(零消耗) | 触发方式 | 鉴权 |
 |---|---|---|---|
 | **Claude Code** | `…/api/oauth/usage` | 交互式 Claude Code CLI | OAuth(钥匙串 / `~/.claude`) |
-| **Codex** | `…/backend-api/wham/usage` | 交互式 Codex CLI | OAuth(`~/.codex/auth.json`) |
-| **Spark** | `…/backend-api/wham/usage` (`additional_rate_limits`) | 使用 `gpt-5.3-codex-spark` 的交互式 Codex CLI | OAuth(`~/.codex/auth.json`) |
+| **Codex** | `…/backend-api/wham/usage` | `codex exec --ephemeral` | OAuth(`~/.codex/auth.json`) |
 
 ## 工作原理
 
@@ -71,14 +75,13 @@ limitping bg logs -f
 
 | 任务 | 机制 | 代价 |
 |------|------|------|
-| **触发**新窗口 | 官方交互式 CLI(Claude Code / Codex) | 消耗一点额度(这正是功能本身) |
+| **触发**新窗口 | 官方 CLI(交互式 Claude Code / headless `codex exec`) | 消耗一点额度(这正是功能本身) |
 | **读取**用量与重置时刻 | 零消耗用量端点(和 CodexBar / 社区插件用的是同一批) | 不消耗,也绝不会起算窗口 |
 
 当 `watch` 发现 5h 窗口已经重置时,会先检查是否有 Claude/Codex 会话正处于对话进行中。
 如果有,`limitping` 会等待并重新读取用量,而不是自己发 ping,因为这个会话的下一次模型
-请求会自然起算新窗口。Spark 使用 Codex 活跃会话信号。这个检查依赖
-[CLI 钩子](#活跃会话检测钩子)(安装脚本会自动装好);未安装钩子时,`limitping` 会跳过该检查,
-窗口一重置就直接 ping(绝不靠扫描进程来猜)。
+请求会自然起算新窗口。这个检查依赖 [CLI 钩子](#活跃会话检测钩子)(安装脚本会自动装好);
+未安装钩子时,`limitping` 会跳过该检查,窗口一重置就直接 ping(绝不靠扫描进程来猜)。
 
 - **Claude**:用 macOS 钥匙串(`Claude Code-credentials`)或 `~/.claude/.credentials.json`
   里的 OAuth token,读 `GET https://api.anthropic.com/api/oauth/usage`。触发使用带
@@ -87,15 +90,16 @@ limitping bg logs -f
   429,limitping 会调用免费且不创建 Message 的 token-counting 端点,区分真实的
   端点限流与 Claude Code 订阅访问被禁用。
 - **Codex**:用 `~/.codex/auth.json` 里的 OAuth token,读
-  `GET https://chatgpt.com/backend-api/wham/usage`。触发使用带 TTY 的交互式
-  `codex "<prompt>"` 会话;headless `codex exec` 可能会消耗 token,但不一定起算
-  Codex 订阅窗口。
-- **Spark**:复用 Codex 用量端点、OAuth token、钩子和交互式 CLI 路径,但从
-  `additional_rate_limits` 中读取 `GPT-5.3-Codex-Spark` 条目,用
-  `gpt-5.3-codex-spark` 模型发送 ping,并作为独立的 `spark` Provider 展示。
+  `GET https://chatgpt.com/backend-api/wham/usage`。触发执行
+  `codex exec --ephemeral --json "<prompt>"`。ping 之所以走 headless,就是为了
+  `--ephemeral`:交互式 CLI 没有办法不落盘会话,所以以前每次 ping 都会在
+  `codex resume` 和 Codex Desktop 的对话列表里留下一条 `ok` 会话。`--json` 让 ping
+  可验证 —— 它的 `turn.completed` 事件是本地唯一能证明「确实发出了一次计费请求」的
+  依据,报告里的 token 数和费用也来自这里。ping 同时带 `--disable hooks` 和
+  `--sandbox read-only`:钩子没理由为一个合成会话触发(它也不该把自己登记成活跃的
+  Codex 会话),而且这条路径上没有人审阅模型的动作 —— 交互式会话有你在键盘前,它没有。
 
-Claude/Codex 的 token 直接复用官方工具(无需另外登录),遇到 401 会自动刷新。Spark 复用
-Codex token。
+Claude/Codex 的 token 直接复用官方工具(无需另外登录),遇到 401 会自动刷新。
 
 ### Codex/Spark 窗口验证
 
@@ -136,6 +140,26 @@ curl -fsSL https://raw.githubusercontent.com/wavever/CCLimitPing/main/install.sh
 limitping upgrade
 ```
 
+`upgrade` 会先检查,已是最新就直接告诉你;`--force` 可强制重装。`status`、`ping`、
+`bg status` 和 `continue` 也会在自己的输出之前提示新版本,每个版本只提示到你处理为止:
+
+```
+✨ 有新版本!  0.9.0 -> 0.10.0
+   更新说明: https://github.com/wavever/CCLimitPing/releases/latest
+
+     1. 立即更新 (执行 `limitping upgrade`)
+   ❯ 2. 跳过
+     3. 跳过此版本
+
+   ↑/↓ 移动 · Enter 确认 · Esc 跳过
+```
+
+用方向键移动、回车确认(和 Provider CLI 一致);数字键仍可直接选中。光标初始停在
+「跳过」——这个提示打断的是你真正要跑的命令,所以回车、Esc、Ctrl-C 都保持原样、
+什么都不做。选 3 会把该版本记进 `~/.config/limitping/version.json`,直到下一个版本
+才再提醒。检查每天最多一次、最长阻塞 2 秒,并且在非交互终端下完全跳过 —— 所以
+`--json`、`hook` 回调和后台守护进程都不会被打扰。
+
 简称/别名:`limitping up`、`limitping update`。
 
 **卸载** —— 删除已安装的二进制以及配置/缓存:
@@ -168,23 +192,21 @@ go install github.com/wavever/CCLimitPing/cmd/limitping@latest
 go build -o bin/limitping ./cmd/limitping
 ```
 
-你启用的每个 Provider 各自需要凭据:登录好的 `claude` / `codex` CLI。Spark 使用
-Codex CLI 凭据。
+你启用的每个 Provider 各自需要凭据:登录好的 `claude` / `codex` CLI。
 
 ## 使用
 
 ```sh
 limitping config init          # 生成 ~/.config/limitping/config.toml
-limitping status               # 查看 5h/周 用量百分比 + 重置倒计时(简称: s)
+limitping status               # 5h/周 用量 + 重置倒计时 + 今日 token(简称: s)
 limitping status --json        # 以 JSON 输出每个 Provider 的用量(便于脚本处理)
-limitping status -v            # 额外打印原始 JSON
+limitping status -v            # 额外打印分模型明细和原始 JSON
 limitping ping                 # 立即触发所有已启用的 Provider(简称: p)
 limitping ping claude          # 只触发 Claude
 limitping ping codex           # 只触发 Codex
-limitping ping spark           # 只触发 Spark
 limitping ping --dry-run       # 只打印将执行的命令,不真正发送
 limitping watch                # 前台守护:在每个窗口重置时自动 ping(简称: w)
-limitping watch claude         # 只监测某一个 Provider(claude|codex|spark)
+limitping watch claude         # 只监测某一个 Provider(claude|codex)
 limitping watch --live         # 可选:显示实时心电图状态行
 limitping watch --dry-run      # 只记录何时会触发,不真正发送
 limitping schedule codex --at 05:00 --at 13:00  # 按每日指定时间 ping
@@ -210,7 +232,13 @@ limitping uninstall            # 删除 limitping 以及配置/缓存(简称: rm
 
 ### 命令简称
 
-`limitping --help` 会在命令列表中直接展示简称,例如 `ping, p`。
+`limitping --help` 会在命令列表中直接展示简称,例如 `ping, p`;顶部的 `别名:` 一行会
+同时列出两个程序名,所以用哪个名字调用都能发现另一个。
+
+程序本身也有短名:安装脚本会在 `limitping` 旁边建一个 `lmp` 软链,所以 `lmp status`、
+`lmp w` 和 `limitping status` 完全等价。如果 `lmp` 已存在、或在你的 PATH 上已指向别的
+命令,安装脚本会跳过这个软链 —— `/usr/local/bin` 里的软链会遮蔽掉与它同名的任何命令。
+(从源码构建的话:`ln -s limitping /usr/local/bin/lmp`。)
 
 | 命令 | 简称/别名 |
 | --- | --- |
@@ -218,6 +246,7 @@ limitping uninstall            # 删除 limitping 以及配置/缓存(简称: rm
 | `ping` | `p` |
 | `watch` | `w` |
 | `schedule` | `sched` |
+| `redeem` | `r` |
 | `background` | `bg` |
 | `config` | `c`、`cfg` |
 | `config init` | `c i` |
@@ -226,22 +255,28 @@ limitping uninstall            # 删除 limitping 以及配置/缓存(简称: rm
 | `upgrade` | `up`、`update` |
 | `uninstall` | `rm`、`remove` |
 
-`ping` 会显示具体命令和实时计时(终端下是 spinner)。当前 Claude/Codex/Spark 都用交互式
-触发,CLI 不提供可靠的逐次 machine-readable token/费用数据,所以成功输出通常只显示耗时:
+`ping` 会显示具体命令和实时计时(终端下是 spinner)。Codex 的 ping 会报告这一轮的
+token 数和等价 API 费用,数据来自 `codex exec --json`;Claude 仍用交互式触发,CLI 不
+提供可靠的逐次 machine-readable 用量,所以只显示耗时:
 
 ```
 claude  → claude --model haiku .
 claude  ✓ pinged (6.6s)
-codex   → codex -c model_reasoning_effort=low -m gpt-5.6-luna -c tui.notifications=["agent-turn-complete"] -c tui.notification_method="osc9" -c tui.notification_condition="always" ok
-codex   CLI trigger returned without error (6.8s); turn completion is not verified
-spark   → codex -c model_reasoning_effort=low -m gpt-5.3-codex-spark -c tui.notifications=["agent-turn-complete"] -c tui.notification_method="osc9" -c tui.notification_condition="always" ok
-spark   CLI trigger returned without error (6.5s); turn completion is not verified
+codex   → codex exec --ephemeral --json --skip-git-repo-check --disable hooks --sandbox read-only -c model_reasoning_effort=low -m gpt-5.6-luna ok
+codex   ✓ turn completed (14s, 19,426 tok (in 19,414 / out 12), $0.0023); quota start is checked separately
 ```
 
-对于 Codex/Spark，`limitping` 会自动追加 `-c tui...` 参数，收到轮次完成通知后停止 TUI。
-仍保留 45 秒安全超时；这不代表已确认限额窗口启动。
+`ping` 和 `watch` 日志始终会显示模型。极少数情况下 limitping 选不出来(磁盘上没有模型
+目录,或目录里认不出低成本档),就交回给 Codex CLI 决定,此时模型会标注在命令旁边,
+这样仍然能看清这次 ping 消耗在哪个模型上:
 
-ping 后请用 `status` 或 `bg status` 查看权威的 5h/周窗口状态。
+```
+codex   → codex exec --ephemeral --json … -c model_reasoning_effort=low ok  (模型: gpt-5.6-sol)
+```
+
+ping 结束时会把被 ping 的 Provider 的窗口状态一并打印出来(和 `status` 相同)——
+一次 ping 远远不足以让用量百分比变动,所以它自己的输出说明不了窗口有没有起算。读取
+用量不消耗额度,也不会起算窗口。`--dry-run` 不会读:什么都没发出去,就没有新状态可报。
 
 `status` 示例:
 
@@ -249,10 +284,12 @@ ping 后请用 `status` 或 `bg status` 查看权威的 5h/周窗口状态。
 claude
   5h     [█████░░░░░]  51.0% 已用  3h14m 后重置 (周日 00:10 UTC+8)
   周     [█████░░░░░]  54.0% 已用  7h04m 后重置 (周日 04:00 UTC+8)
+  今日   55.0M tok  ≈ $41.03
 
 codex (plus)
   5h     当前未生效
   周     [████░░░░░░]  37.0% 已用  111h57m 后重置 (周四 12:53 UTC+8)
+  今日   20.5M tok  ≈ $10.06
   重置券 1 张可用
     - 可用，发放于 06-17 17:38，有效期至 07-17 17:38 UTC+8 (剩 24d6h)
 ```
@@ -262,15 +299,52 @@ codex (plus)
 文本状态默认显示 **used** 百分比。若想和 Codex 界面里的“剩余用量”保持同一口径,
 可以设置 `usage_display = "remaining"`。
 
+### 今日 token 与预估费用
+
+百分比回答不了的问题——本机从本地零点起到底用掉了多少 token、按官方 API 价折算值
+多少钱(也就是订阅帮你省下了多少)——由 `今日` 这一行给出。用量接口只返回百分比,
+所以 token 数来自 CLI 自己写在磁盘上的会话记录(`~/.claude/projects`、
+`~/.codex/sessions`,并遵循 `$CLAUDE_CONFIG_DIR` / `$CODEX_HOME`),和 ccusage、
+CodexBar 的数据源一致;价格用的是 limitping 早已为 `ping` 缓存的
+[LiteLLM](https://github.com/BerriAI/litellm) 价格表。全程本地只读,不上传任何内容,
+并且与用量请求并发执行,几乎不增加耗时。
+
+两点需要知道:一是**只统计本机**——在别的机器或网页版里跑的会话不会留下本地记录,
+也就不会被计入;二是**费用是估算**——订阅本身并不按 token 计费。如果某个模型太新、
+价格表里还没有,它的 token 照常统计,只是不计入金额(JSON 中 `cost_complete: false`)。
+
+`status -v` 会按 token 类型和模型展开:
+
+```
+  今日   55.0M tok  ≈ $41.03
+         输入 770 · 缓存 读 53.6M / 写 1.1M · 输出 300.6K
+         claude-opus-5              54.9M tok  ≈ $40.95
+         claude-haiku-4-5-20251001  67.4K tok  ≈ $0.09
+```
+
+如果某个 Provider 的 CLI 从没在本机跑过,这一行会整行省略——此时保持沉默才是诚实的,
+显示 `0 tok` 反而像是在说“今天没用”。
+
 `status --json` 以 JSON 数组返回相同数据(每个 Provider 一个对象),便于脚本和
 看板消费。进度提示会被抑制,以保证 stdout 是单个合法 JSON;读取失败的 Provider
 会变成 `{"provider": "...", "error": "..."}`,且命令以非零码退出。加上 `-v` 可在
 `raw` 字段内嵌入各 Provider 的原始响应。
 
+若某个 Provider 在本机完全没有会话记录,`today` 会被整体省略;存在时,`cost_usd`
+是按 API 价折算的估算值,而当某个跑过的模型没有公开价格时 `cost_complete` 为
+false,此时该金额只是下限。
+
 当 Provider 当前不执行某个窗口限制时,对应的窗口键(`five_hour` / `weekly`)会被
 省略——例如 OpenAI 于 2026-07-12 临时取消了 Codex 的 5 小时限制,只保留周限额。
 文本模式下这类窗口会显示「当前未生效」(英文环境: `not currently enforced`),
 `watch` 也会改为在周窗口重置时 ping,而不是每 5 小时一次。
+
+「限制生效但窗口尚未开始」是另一种状态:文本模式显示「无活跃窗口」(英文环境:
+`(no active window)`),JSON 中也不会有 `resets_at`——滚动窗口在被请求锚定之前
+没有重置时间。Codex 不会直接报告这个状态,它返回的是一个完整长度、且每次读取都
+会往后滑动的窗口(`reset_after_seconds` 等于 `limit_window_seconds`),表示「如果
+你现在开一个窗口,它会在何时结束」。limitping 会把这种响应归一化掉,因此只有真正
+在跑的窗口才会显示重置时间。
 
 ```json
 [
@@ -304,6 +378,20 @@ codex (plus)
         }
       ]
     },
+    "today": {
+      "date": "2026-06-17",
+      "input_tokens": 674291,
+      "cache_read_tokens": 19719552,
+      "cache_creation_tokens": 0,
+      "output_tokens": 81039,
+      "total_tokens": 20474882,
+      "cost_usd": 10.059257,
+      "cost_complete": true,
+      "models": [
+        { "model": "gpt-5.6-sol", "total_tokens": 13774852, "cost_usd": 7.748941 },
+        { "model": "gpt-5.6-terra", "total_tokens": 6700030, "cost_usd": 2.310316 }
+      ]
+    },
     "limit_reached": false,
     "fetched_at": "2026-06-17T01:00:43+08:00"
   }
@@ -331,19 +419,11 @@ continue_prompt = "continue"  # continue 在 5h 恢复时注入的消息;留空 
 [codex]
 enabled          = true
 prompt           = "ok"
-model            = "gpt-5.6-luna"  # 用于触发的最便宜 Codex 模型
+model            = ""     # 留空 = 自动选择你的套餐里最便宜的模型
 reasoning_effort = "low"  # 启用 web_search/image_gen 工具时,"minimal" 会被拒绝
 extra_args       = []     # 额外 Codex CLI 参数;--json 等 exec-only 参数会被忽略
 align_start      = ""
 continue_prompt  = "continue"  # continue 在 5h 恢复时注入的消息;留空 = "continue"
-
-[spark]
-enabled          = false  # 需显式启用;Spark 是独立的 Codex-backed watch 目标
-prompt           = "ok"
-model            = "gpt-5.3-codex-spark"
-reasoning_effort = "low"
-extra_args       = []
-align_start      = ""
 ```
 
 顶层配置项:
@@ -361,13 +441,16 @@ align_start      = ""
 的模型,尽量少吃额度:
 
 - **Claude → `haiku`**:同时避开单独的周 Opus 额度池。
-- **Codex → `gpt-5.4-mini`**:mini 变体(你的套餐有哪些见 `~/.codex/models_cache.json`)。
-- **Spark → `gpt-5.3-codex-spark`**:一个 Codex-backed Spark 目标;默认关闭,避免升级后
-  自动多一次消耗额度的 ping。
+- **Codex → 留空,每次 ping 时解析**:limitping 会读取 Codex CLI 自己的模型目录
+  (`~/.codex/models_cache.json`),挑出你套餐里最便宜的那个 —— 即 OpenAI 标注为
+  "Fast and affordable" 的低成本档,而**不是**你在 Codex 里设的主力模型(通常贵得多)。
+  因为是在 ping 时才决定,OpenAI 上下线模型都不影响。想钉死某个模型就直接写上;
+  钉死的模型一旦下线会被直接拒绝并列出当前可用列表,而不是等到窗口重置时收到一个
+  看不懂的服务端报错。
 
-Claude/Codex/Spark 运行时都拿不到每个模型的价格(Anthropic 本地价格缓存是空的;Codex
-的模型缓存没有价格字段),所以这里用"最便宜模型"作为合理默认,而不是实时查价。需要的话
-可按 Provider 覆盖 `model`。
+Claude/Codex 运行时都拿不到每个模型的价格(Anthropic 本地价格缓存是空的;Codex 的模型
+缓存没有价格字段),所以这里用"最便宜模型"作为合理默认,而不是实时查价。需要的话可按
+Provider 覆盖 `model`。
 
 ### 活跃会话检测(钩子)
 
@@ -384,8 +467,7 @@ limitping hooks install        # 两个 Provider 都装(或 limitping hooks inst
 这会把 limitping 的钩子写入 `~/.claude/settings.json` 和 `~/.codex/hooks.json`(保留你已有
 的配置,并写入 `.bak` 备份)。钩子会在 `UserPromptSubmit` / `PreToolUse` / `PostToolUse` /
 `Stop`(Claude 还有 `SessionEnd`)时调用隐藏命令 `limitping hook <provider>`,把会话是否
-处于对话进行中记录到 `~/.config/limitping/activity/`。Spark 通过 Codex CLI 运行,复用
-Codex 钩子/活跃状态标记,没有单独的 Spark 钩子配置。
+处于对话进行中记录到 `~/.config/limitping/activity/`。
 
 > [!NOTE]
 > Claude Code 会自动加载钩子,无需操作。**Codex** 对自定义命令钩子要求一次性信任:
@@ -402,7 +484,7 @@ Codex 钩子/活跃状态标记,没有单独的 Spark 钩子配置。
 limitping schedule codex --at 05:00
 limitping schedule codex --at 05:00 --at 13:00 --at 21:00
 limitping schedule --at 05:00,13:00,21:00
-limitping schedule spark --every 5h --dry-run
+limitping schedule codex --every 5h --dry-run
 ```
 
 `--every` 和 `--at` 可以一起使用;谁先到就先执行。`--at` 是本地每日时间,格式为
@@ -478,7 +560,7 @@ limitping continue claude --dangerously-skip-permissions
 - 触发会**消耗一点额度**(约每 5h 一次 ≈ 每周 33 次)。ping 用最小 prompt + 低 reasoning,
   成本很小但非零。
 - **用量端点是非官方接口**,可能变更;它们都是只读的,并按 Provider 隔离,方便单独热修。
-- 以 macOS 为主:钥匙串读取和通知仅限 macOS。Codex/Spark 的 `auth.json` 跨平台;Claude
+- 以 macOS 为主:钥匙串读取和通知仅限 macOS。Codex 的 `auth.json` 跨平台;Claude
   在 Linux 上用 `~/.claude/.credentials.json`;非 macOS 上通知为空操作。
 
 ## 目录结构
@@ -487,10 +569,11 @@ limitping continue claude --dangerously-skip-permissions
 cmd/limitping            CLI 入口
 internal/config          TOML 配置
 internal/usage           归一化的用量模型
-internal/auth            Claude(钥匙串)+ Codex/Spark(auth.json)token
+internal/auth            Claude(钥匙串)+ Codex(auth.json)token
 internal/provider        各 Provider 的 ReadUsage(端点)+ Trigger(CLI)
 internal/activity        基于钩子的活跃会话状态(hook 命令与 scheduler 共用)
 internal/pricing         为能暴露 token 用量的 Provider 准备的价格辅助代码
+internal/spend           今日 token 与费用,读取 CLI 的本地会话记录
 internal/scheduler       watch 引擎(sleep 到重置、尊重周限额、退避重试)
 internal/notify          macOS osascript 通知
 internal/cli             cobra 命令:status、ping、watch、schedule、continue、background、config、hooks、upgrade、uninstall、version
@@ -512,12 +595,20 @@ Provider 都隔离在 `internal/provider`,只需实现一个很小的 `Provider`
 `Trigger`),所以新增一个 Provider 基本是自包含的 Provider 代码,加上在 `internal/cli`
 和 `internal/config` 里接一下线。
 
-**发版**是自动的:打一个 tag 并推送,GitHub Actions 会跑 GoReleaser 交叉编译各平台
-二进制并发布 Release。
+**发版**只有一条命令 —— 打 tag 并推送,GitHub Actions 会跑 GoReleaser 交叉编译各平台
+二进制并发布 Release:
 
 ```sh
-git tag v0.2.0 && git push origin v0.2.0
+git tag v0.10.0 && git push origin v0.10.0
 ```
+
+不需要改任何其他文件。tag 是版本号唯一被写下来的地方:发布构建通过 `-ldflags` 注入,
+其他构建从模块自身的 build info 推导,所以没有常量需要手动 bump,也就不可能和 tag 不一致。
+本地 `go build` 出来的版本是 `dev+<revision>`,不会提示自我升级。
+
+Release notes 由 commit 日志生成,所以**提交标题就是 release notes** —— 请按"用户愿意读
+的一行字"来写。仓库里不再维护手写 changelog,已发布的说明见
+[Releases](https://github.com/wavever/CCLimitPing/releases) 页面。
 
 ## 许可证
 

@@ -267,7 +267,10 @@ func (c *Claude) Trigger(ctx context.Context, dryRun bool) (*TriggerResult, erro
 	args = append(args, claudeInteractiveArgs(c.cfg.ExtraArgs)...)
 	args = append(args, prompt)
 
-	res := &TriggerResult{Command: "claude " + shellJoin(args)}
+	// An unset model leaves Model empty: Claude Code resolves its own default
+	// from settings precedence limitping does not reproduce, and guessing would
+	// be worse than saying nothing.
+	res := &TriggerResult{Command: "claude " + shellJoin(args), Model: c.cfg.Model}
 	if dryRun {
 		return res, nil
 	}

@@ -62,7 +62,6 @@ type Config struct {
 
 	Claude ProviderConfig `toml:"claude"`
 	Codex  ProviderConfig `toml:"codex"`
-	Spark  ProviderConfig `toml:"spark"`
 }
 
 // Default returns the built-in defaults used when no config file exists.
@@ -80,17 +79,14 @@ func Default() Config {
 			ContinuePrompt: "continue",
 		},
 		Codex: ProviderConfig{
-			Enabled:         true,
-			Prompt:          "ok",
-			Model:           "gpt-5.6-luna",
+			Enabled: true,
+			Prompt:  "ok",
+			// Empty means limitping picks the cheapest model in the Codex
+			// catalog at ping time. Naming one here is what went stale when
+			// OpenAI retired gpt-5.4-mini.
+			Model:           "",
 			ReasoningEffort: "low",
 			ContinuePrompt:  "continue",
-		},
-		Spark: ProviderConfig{
-			Enabled:         false,
-			Prompt:          "ok",
-			Model:           "gpt-5.3-codex-spark",
-			ReasoningEffort: "low",
 		},
 	}
 }
@@ -207,9 +203,11 @@ continue_prompt = "continue"
 [codex]
 enabled = true
 prompt = "ok"
-# Cheapest Codex model for triggering (see ~/.codex/models_cache.json for the
-# list available to your plan). Empty = use the Codex default model.
-model = "gpt-5.6-luna"
+# Model used to trigger a window. Empty = pick the cheapest one your plan
+# offers, read from the Codex CLI's own catalog at ping time — a ping only has
+# to be billable, so this stays correct as OpenAI retires and adds models.
+# Name a model here to pin it (see ~/.codex/models_cache.json for the list).
+model = ""
 # "low" keeps the ping cheap; "minimal" is rejected when web_search/image_gen
 # tools are enabled in your Codex config.
 reasoning_effort = "low"
@@ -221,14 +219,4 @@ continue_prompt = "continue"
 # 24h with usage to reclaim, or in its final hour). Redeeming is irreversible;
 # "limitping redeem" does it manually. See "limitping help redeem".
 auto_redeem = false
-
-[spark]
-# Spark is a separate watch target backed by the Codex CLI and credentials.
-# Disabled by default so upgrades do not add another quota-consuming ping.
-enabled = false
-prompt = "ok"
-model = "gpt-5.3-codex-spark"
-reasoning_effort = "low"
-extra_args = []
-align_start = ""
 `

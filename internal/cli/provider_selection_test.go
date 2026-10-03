@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/wavever/CCLimitPing/internal/config"
@@ -8,7 +9,7 @@ import (
 	"github.com/wavever/CCLimitPing/internal/scheduler"
 )
 
-func TestDefaultConfigDoesNotEnableSpark(t *testing.T) {
+func TestDefaultConfigSelectsBothProviders(t *testing.T) {
 	cfg := config.Default()
 
 	providers := enabledProviders(cfg)
@@ -25,41 +26,40 @@ func TestDefaultConfigDoesNotEnableSpark(t *testing.T) {
 	}
 }
 
-func TestExplicitSparkSelectionWorksWhenDisabled(t *testing.T) {
+func TestDisabledProviderIsStillSelectableByName(t *testing.T) {
 	cfg := config.Default()
+	cfg.Codex.Enabled = false
 
-	providers, err := selectProviders(cfg, "spark")
+	providers, err := selectProviders(cfg, "codex")
 	if err != nil {
 		t.Fatalf("selectProviders: %v", err)
 	}
-	if got, want := providerNames(providers), []string{"spark"}; !sameStrings(got, want) {
+	if got, want := providerNames(providers), []string{"codex"}; !sameStrings(got, want) {
 		t.Fatalf("providers = %#v, want %#v", got, want)
 	}
 
-	targets, err := selectTargets(cfg, "spark")
+	targets, err := selectTargets(cfg, "codex")
 	if err != nil {
 		t.Fatalf("selectTargets: %v", err)
 	}
-	if got, want := targetNames(targets), []string{"spark"}; !sameStrings(got, want) {
+	if got, want := targetNames(targets), []string{"codex"}; !sameStrings(got, want) {
 		t.Fatalf("targets = %#v, want %#v", got, want)
 	}
 }
 
-func TestEnabledSparkAppearsInAllSelections(t *testing.T) {
+// A name limitping does not serve — a typo, or a provider that has since been
+// retired — must be rejected with the list of valid ones, not resolved into a
+// silently empty selection.
+func TestUnknownProviderIsRejected(t *testing.T) {
 	cfg := config.Default()
-	cfg.Spark.Enabled = true
 
-	providers := enabledProviders(cfg)
-	if got, want := providerNames(providers), []string{"claude", "codex", "spark"}; !sameStrings(got, want) {
-		t.Fatalf("enabled providers = %#v, want %#v", got, want)
+	if _, err := selectProviders(cfg, "nonesuch"); err == nil {
+		t.Fatal("selectProviders succeeded on an unknown provider, want an error")
+	} else if !strings.Contains(err.Error(), "claude, codex, or all") {
+		t.Fatalf("selectProviders error = %v, want the valid provider list", err)
 	}
-
-	targets, err := buildTargets(cfg)
-	if err != nil {
-		t.Fatalf("buildTargets: %v", err)
-	}
-	if got, want := targetNames(targets), []string{"claude", "codex", "spark"}; !sameStrings(got, want) {
-		t.Fatalf("targets = %#v, want %#v", got, want)
+	if _, err := selectTargets(cfg, "nonesuch"); err == nil {
+		t.Fatal("selectTargets succeeded on an unknown provider, want an error")
 	}
 }
 
