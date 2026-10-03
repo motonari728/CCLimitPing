@@ -9,6 +9,7 @@ set -eu
 
 REPO="wavever/CCLimitPing"
 BIN="limitping"
+ALIAS="lmp" # short name, symlinked next to the binary
 
 os=$(uname -s | tr '[:upper:]' '[:lower:]')
 arch=$(uname -m)
@@ -57,6 +58,48 @@ else
 fi
 
 echo "Installed $BIN -> $dir/$BIN"
+
+# Short alias: `lmp` behaves exactly like `limitping`. Two guards before we
+# claim the name, because $dir usually precedes /usr/bin on PATH, so a symlink
+# here silently shadows whatever it collides with. That is why the alias is not
+# `lp`: that is CUPS's printing command, present on macOS and most Linux
+# distributions, and shadowing it would break printing rather than anything
+# obviously limitping's fault.
+alias_path="$dir/$ALIAS"
+alias_skip=""
+
+# 1. The path itself must be free, or already our own link. `uninstall` applies
+#    the same ownership test before removing.
+if [ -e "$alias_path" ] || [ -L "$alias_path" ]; then
+  alias_skip="$alias_path already exists and is not our symlink"
+  if [ -L "$alias_path" ]; then
+    alias_target=$(readlink "$alias_path")
+    case "$alias_target" in
+      /*) ;;
+      *) alias_target="$dir/$alias_target" ;;
+    esac
+    if [ "$alias_target" = "$dir/$BIN" ]; then
+      alias_skip=""
+    fi
+  fi
+fi
+
+# 2. And the name must not already resolve to some other command on PATH.
+if [ -z "$alias_skip" ]; then
+  alias_existing=$(command -v "$ALIAS" 2>/dev/null || true)
+  if [ -n "$alias_existing" ] && [ "$alias_existing" != "$alias_path" ]; then
+    alias_skip="'$ALIAS' already runs $alias_existing"
+  fi
+fi
+
+if [ -n "$alias_skip" ]; then
+  echo "NOTE: $alias_skip; skipped the short alias. Use the full \`$BIN\` name."
+elif ln -sf "$BIN" "$alias_path" 2>/dev/null || sudo ln -sf "$BIN" "$alias_path" 2>/dev/null; then
+  echo "Installed $ALIAS -> $dir/$BIN (short alias)"
+else
+  echo "NOTE: could not create the $ALIAS symlink in $dir; use the full \`$BIN\` name,"
+  echo "      or link it yourself: ln -s $BIN $alias_path"
+fi
 case ":$PATH:" in
   *":$dir:"*) ;;
   *)

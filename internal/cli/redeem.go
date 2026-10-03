@@ -20,10 +20,11 @@ func newRedeemCmd() *cobra.Command {
 	var dryRun bool
 	text := localizedText()
 	cmd := &cobra.Command{
-		Use:   "redeem",
-		Short: text.redeemShort,
-		Long:  text.redeemLong,
-		Args:  cobra.NoArgs,
+		Use:     "redeem",
+		Aliases: []string{"r"},
+		Short:   text.redeemShort,
+		Long:    text.redeemLong,
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := config.Load()
 			if err != nil {

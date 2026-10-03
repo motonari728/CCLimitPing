@@ -45,7 +45,7 @@ func newUsageHTTPClient() *http.Client {
 
 // Provider abstracts a single AI coding provider.
 type Provider interface {
-	// Name is the stable identifier ("claude", "codex", "spark").
+	// Name is the stable identifier ("claude", "codex").
 	Name() string
 	// ReadUsage fetches the current rate-limit snapshot. This is a read-only
 	// call against the provider's usage endpoint and consumes no quota.
@@ -83,7 +83,7 @@ type ResetCreditRedeemer interface {
 	AutoRedeemResetCredit(ctx context.Context, u *usage.Usage) (outcome string, err error)
 }
 
-// CodexCompletionError means the TUI ended or timed out without completion evidence.
+// CodexCompletionError means the CLI exited without a completed turn event.
 type CodexCompletionError struct{ Reason string }
 
 func (e *CodexCompletionError) Error() string { return e.Reason }
@@ -103,6 +103,7 @@ type TriggerResult struct {
 	PreVerification *usage.Verification
 	PostcheckErr    error // quota-read failure, independent of the CLI outcome
 	StatusEnabled   bool
+	Model           string // model actually selected for the ping
 }
 
 // VerifiedTrigger uses the same ping path with a watcher-owned pre-send reservation.

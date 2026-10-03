@@ -15,7 +15,9 @@ func TestWindowActive(t *testing.T) {
 	}{
 		{"zero value", Window{}, false},
 		{"consumption and future reset", Window{UsedPercent: 10, ResetsAt: future}, true},
-		{"no consumption yet", Window{UsedPercent: 0, ResetsAt: future}, false},
+		// A window a ping is the only thing to have touched rounds to 0% used,
+		// but it is running: the ping anchored it and it has a reset time.
+		{"running but rounds to 0%", Window{UsedPercent: 0, ResetsAt: future}, true},
 		{"already reset", Window{UsedPercent: 10, ResetsAt: past}, false},
 		{"consumption but no reset time", Window{UsedPercent: 10}, false},
 	}

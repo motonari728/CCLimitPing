@@ -19,10 +19,10 @@ func TestCodexStartupHintLog(t *testing.T) {
 			s := &Scheduler{log: log.New(&out, "", 0)}
 			res := &provider.TriggerResult{Command: "codex -C /tmp/ping-repo ok"}
 			err := fmt.Errorf("wrapped: %w", &provider.CodexCompletionError{Reason: "timeout"})
-			s.logCodexStartupHint("spark", res, err)
+			s.logCodexStartupHint("codex", res, err)
 			got := out.String()
-			if !strings.Contains(got, res.Command) || !strings.Contains(got, "confirmation dialogs") ||
-				!strings.Contains(got, "CODEX_HOME") || !strings.Contains(got, "[spark]") {
+			if !strings.Contains(got, res.Command) || !strings.Contains(got, "JSON output") ||
+				!strings.Contains(got, "CODEX_HOME") || !strings.Contains(got, "[codex]") {
 				t.Fatal(got)
 			}
 			if home != "" && !strings.Contains(got, fmt.Sprintf("%q", home)) {

@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/wavever/CCLimitPing/internal/config"
+	"github.com/wavever/CCLimitPing/internal/spend"
 )
 
 const (
@@ -89,6 +90,7 @@ func newBackgroundCmd() *cobra.Command {
 		Args:    cobra.NoArgs,
 		// Bare `limitping bg` reports status — the common "is it running?" check.
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			updateNotice(cmd.Context(), cmd.OutOrStdout(), text, os.Stdin)
 			return runBgStatus(cmd.Context(), cmd.OutOrStdout())
 		},
 	}
@@ -104,7 +106,7 @@ func newBgStartCmd() *cobra.Command {
 		Short:     text.bgStartShort,
 		Long:      text.bgStartLong,
 		Args:      cobra.MatchAll(cobra.MaximumNArgs(1), cobra.OnlyValidArgs),
-		ValidArgs: []string{"claude", "codex", "spark", "all"},
+		ValidArgs: []string{"claude", "codex", "all"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runBgStart(cmd.OutOrStdout(), argOrAll(args), dryRun)
 		},
@@ -120,6 +122,7 @@ func newBgStatusCmd() *cobra.Command {
 		Short: text.bgStatusShort,
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			updateNotice(cmd.Context(), cmd.OutOrStdout(), text, os.Stdin)
 			return runBgStatus(cmd.Context(), cmd.OutOrStdout())
 		},
 	}
@@ -167,7 +170,7 @@ func runBgStart(out io.Writer, provider string, dryRun bool) error {
 	}
 
 	if st, ok := readBgState(); ok && processAlive(st.PID) {
-		return fmt.Errorf("background watch already running (pid %d); stop it first with `limitping bg stop`", st.PID)
+		return fmt.Errorf("background watch already running (pid %d); stop it first with `%s bg stop`", st.PID, invokedName())
 	}
 	if st, ok := activeWatchLock(); ok {
 		return watchAlreadyRunningError(st)
@@ -275,15 +278,19 @@ func runBgStatus(ctx context.Context, out io.Writer) error {
 	// Per-provider usage, the same view as `limitping status`.
 	fmt.Fprintln(out)
 	for _, p := range providers {
+		spendCh := make(chan *spend.Day, 1)
+		go func() { spendCh <- todaySpend(ctx, p.Name()) }()
+
 		rctx, cancel := context.WithTimeout(ctx, bgUsageTimeout)
 		u, uerr := p.ReadUsage(rctx)
 		cancel()
+		day := <-spendCh
 		if uerr != nil {
 			fmt.Fprintf(out, text.statusErrorFmt, p.Name(), localizedProviderError(text, uerr))
 			fmt.Fprintln(out)
 			continue
 		}
-		printUsage(out, text, u, false, cfg.UsageDisplay)
+		printUsage(out, text, u, false, cfg.UsageDisplay, day)
 	}
 
 	fmt.Fprintln(out, text.bgHintManage)

@@ -90,13 +90,13 @@ func TestVerificationGuidance(t *testing.T) {
 func TestStartJSONDoesNotChangeLegacyActiveOrClaude(t *testing.T) {
 	u := &usage.Usage{Provider: "codex", Weekly: usage.Window{ResetsAt: time.Now().Add(time.Hour), WindowSeconds: 604800},
 		Verification: &usage.Verification{Weekly: usage.StartStatus{State: "started"}}}
-	j := newStatusJSON(u, false)
-	if j.Weekly.Active || j.Weekly.StartState != "started" {
+	j := newStatusJSON(u, false, nil)
+	if j.Weekly.Active != u.Weekly.Active() || j.Weekly.StartState != "started" {
 		t.Fatal(j.Weekly)
 	}
 	u.Verification = nil
 	u.Provider = "claude"
-	j = newStatusJSON(u, false)
+	j = newStatusJSON(u, false, nil)
 	if j.Weekly.StartState != "" {
 		t.Fatal(j.Weekly)
 	}

@@ -5,14 +5,35 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/wavever/CCLimitPing/internal/pricing"
 	"github.com/wavever/CCLimitPing/internal/provider"
+	"github.com/wavever/CCLimitPing/internal/spend"
 	"github.com/wavever/CCLimitPing/internal/usage"
 )
+
+// TestMain points the transcript scan at an empty directory for the whole
+// suite. status reads the local Claude/Codex history for the day's token spend,
+// and without this the tests would read the developer's own — slow, and
+// different on every machine.
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "limitping-cli-test")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	os.Setenv("CLAUDE_CONFIG_DIR", dir)
+	os.Setenv("CODEX_HOME", dir)
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
+}
 
 func TestRunStatusPrintsProgressBeforeReadUsage(t *testing.T) {
 	var out bytes.Buffer
@@ -130,7 +151,7 @@ func TestPrintUsageCanShowRemainingPercent(t *testing.T) {
 		Weekly:   usage.Window{UsedPercent: 15},
 	}
 
-	printUsage(&out, enText, u, false, "remaining")
+	printUsage(&out, enText, u, false, "remaining", nil)
 
 	got := out.String()
 	if !strings.Contains(got, "99.0% remaining") || !strings.Contains(got, "85.0% remaining") {
@@ -150,7 +171,7 @@ func TestPrintUsageMarksMissingWindowNotEnforced(t *testing.T) {
 		},
 	}
 
-	printUsage(&out, enText, u, false, "used")
+	printUsage(&out, enText, u, false, "used", nil)
 
 	got := out.String()
 	if !strings.Contains(got, "5h     not currently enforced") {
@@ -184,7 +205,7 @@ func TestPrintUsageRendersChinese(t *testing.T) {
 		},
 	}
 
-	printUsage(&out, zhText, u, false, "used")
+	printUsage(&out, zhText, u, false, "used", nil)
 
 	got := out.String()
 	for _, want := range []string{
@@ -219,7 +240,7 @@ func TestPrintUsageIncludesResetCredits(t *testing.T) {
 		},
 	}
 
-	printUsage(&out, enText, u, false, "used")
+	printUsage(&out, enText, u, false, "used", nil)
 
 	got := out.String()
 	if !strings.Contains(got, "reset credits 1 reset available") || !strings.Contains(got, "available") {
@@ -228,6 +249,139 @@ func TestPrintUsageIncludesResetCredits(t *testing.T) {
 	if !strings.Contains(got, "(in 29d") {
 		t.Fatalf("status output = %q, want remaining lifetime on the expires part", got)
 	}
+}
+
+func TestPrintUsageShowsTodaysTokensAndCost(t *testing.T) {
+	var out bytes.Buffer
+	u := &usage.Usage{Provider: "claude", FiveHour: usage.Window{UsedPercent: 12}}
+
+	printUsage(&out, enText, u, false, "used", &testDay)
+
+	got := out.String()
+	if !strings.Contains(got, "today  1.2M tok  ≈ $3.45") {
+		t.Fatalf("status output = %q, want today's tokens and cost", got)
+	}
+	if strings.Contains(got, "claude-opus-5") {
+		t.Fatalf("status output = %q, want the per-model breakdown held back for -v", got)
+	}
+}
+
+func TestPrintUsageBreaksTodayDownWhenVerbose(t *testing.T) {
+	var out bytes.Buffer
+	u := &usage.Usage{Provider: "claude"}
+
+	printUsage(&out, enText, u, true, "used", &testDay)
+
+	got := out.String()
+	for _, want := range []string{
+		"in 20.0K · cache 1.1M read / 100.0K write · out 5,000",
+		"claude-opus-5",
+		"1.2M tok  ≈ $3.45",
+		// The model with no published rates is still counted, just not costed.
+		"brand-new-model",
+		"5,000 tok\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("verbose status output = %q, want it to contain %q", got, want)
+		}
+	}
+}
+
+func TestPrintUsageOmitsTodayWithoutLocalTranscripts(t *testing.T) {
+	var out bytes.Buffer
+	u := &usage.Usage{Provider: "claude"}
+
+	// The CLI has never run on this machine: "0 tok" would claim a quiet day
+	// that limitping has no way to know about.
+	printUsage(&out, enText, u, false, "used", &spend.Day{Provider: "claude"})
+	printUsage(&out, enText, u, false, "used", nil)
+
+	if strings.Contains(out.String(), "today") {
+		t.Fatalf("status output = %q, want no today line without local data", out.String())
+	}
+}
+
+func TestPrintUsageRendersTodayInChinese(t *testing.T) {
+	var out bytes.Buffer
+	u := &usage.Usage{Provider: "claude"}
+
+	printUsage(&out, zhText, u, true, "used", &testDay)
+
+	got := out.String()
+	for _, want := range []string{"今日   1.2M tok  ≈ $3.45", "输入 20.0K · 缓存 读 1.1M / 写 100.0K · 输出 5,000"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("zh status output = %q, want it to contain %q", got, want)
+		}
+	}
+}
+
+func TestNewTodayJSONCarriesTheBucketsAndFlagsAPartialCost(t *testing.T) {
+	got := newTodayJSON(&testDay)
+	if got == nil {
+		t.Fatal("newTodayJSON() = nil, want the day")
+	}
+	if got.Date != testDay.Date.Format("2006-01-02") {
+		t.Fatalf("date = %q, want the local day", got.Date)
+	}
+	if got.TotalTokens != 1_225_000 || got.CacheReadTokens != 1_100_000 || got.CacheCreationTokens != 100_000 {
+		t.Fatalf("today = %+v, want the buckets kept apart", got)
+	}
+	if got.CostUSD != 3.45 {
+		t.Fatalf("cost_usd = %v, want 3.45", got.CostUSD)
+	}
+	if got.CostComplete {
+		t.Fatal("cost_complete = true, want false while a model has no published rates")
+	}
+	if len(got.Models) != 2 || got.Models[0].Model != "claude-opus-5" {
+		t.Fatalf("models = %+v, want the per-model breakdown", got.Models)
+	}
+	if newTodayJSON(&spend.Day{Provider: "claude"}) != nil {
+		t.Fatal("newTodayJSON() returned a day for a provider with no local transcripts")
+	}
+}
+
+func TestHumanTokensStaysExactWhileItIsReadable(t *testing.T) {
+	cases := map[int]string{
+		0:             "0",
+		9_999:         "9,999",
+		10_000:        "10.0K",
+		1_250_000:     "1.2M",
+		2_500_000_000: "2.50B",
+	}
+	for n, want := range cases {
+		if got := humanTokens(n); got != want {
+			t.Fatalf("humanTokens(%d) = %q, want %q", n, got, want)
+		}
+	}
+}
+
+func TestFmtUSDKeepsSmallSumsVisible(t *testing.T) {
+	if got := fmtUSD(0.0032); got != "0.0032" {
+		t.Fatalf("fmtUSD(0.0032) = %q, want four decimals", got)
+	}
+	if got := fmtUSD(12.345); got != "12.35" {
+		t.Fatalf("fmtUSD(12.345) = %q, want cents", got)
+	}
+}
+
+// testDay is a day of local usage: one priced model and one the pricing dataset
+// has never heard of.
+var testDay = spend.Day{
+	Provider:  "claude",
+	Date:      time.Date(2026, 9, 14, 0, 0, 0, 0, time.Local),
+	Available: true,
+	Tokens:    pricing.Tokens{Input: 20_000, CacheRead: 1_100_000, CacheWrite: 100_000, Output: 5_000},
+	CostUSD:   3.45,
+	Priced:    false,
+	Models: []spend.ModelSpend{
+		{
+			Model:   "claude-opus-5",
+			Tokens:  pricing.Tokens{Input: 15_000, CacheRead: 1_100_000, CacheWrite: 100_000, Output: 4_000},
+			CostUSD: 3.45,
+			Priced:  true,
+		},
+		{Model: "brand-new-model", Tokens: pricing.Tokens{Input: 5_000}},
+	},
 }
 
 func TestResetCreditLineOmitsRemainingWhenRedeemedOrExpired(t *testing.T) {
@@ -270,7 +424,7 @@ func (f fakeStatusProvider) ReadUsage(context.Context) (*usage.Usage, error) {
 }
 
 func (f fakeStatusProvider) Trigger(context.Context, bool) (*provider.TriggerResult, error) {
-	return nil, nil
+	return &provider.TriggerResult{Command: f.name + " ok"}, nil
 }
 
 func TestFmtZoneRendersOffsetNotAbbreviation(t *testing.T) {

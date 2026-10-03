@@ -26,13 +26,13 @@ func TestStatusRecoveryGuidance(t *testing.T) {
 			t.Run(tc.state+"/"+text.verifyStarted, func(t *testing.T) {
 				u := &usage.Usage{Provider: "codex"}
 				var plain bytes.Buffer
-				printUsage(&plain, text, u, false, "")
+				printUsage(&plain, text, u, false, "", nil)
 				u.Verification = &usage.Verification{
 					Recovery:     tc.state,
 					NextEligible: time.Date(2026, 9, 7, 12, 4, 0, 0, time.UTC),
 				}
 				var out bytes.Buffer
-				printUsage(&out, text, u, false, "")
+				printUsage(&out, text, u, false, "", nil)
 				if tc.want == "" {
 					if out.String() != plain.String() {
 						t.Fatal(out.String())
@@ -42,7 +42,7 @@ func TestStatusRecoveryGuidance(t *testing.T) {
 				}
 				u.Verification.Warning = "observation warning"
 				out.Reset()
-				printUsage(&out, text, u, false, "")
+				printUsage(&out, text, u, false, "", nil)
 				if !strings.Contains(out.String(), "observation warning") {
 					t.Fatal(out.String())
 				}

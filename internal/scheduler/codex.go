@@ -12,7 +12,7 @@ import (
 	"github.com/wavever/CCLimitPing/internal/usage"
 )
 
-// runVerifiedTarget is shared by Codex and Spark, never by Claude. A successful
+// runVerifiedTarget handles Codex, never Claude. A successful
 // transport does not advance a quota schedule without observation evidence.
 func (s *Scheduler) runVerifiedTarget(ctx context.Context, t Target, p provider.VerifiedTrigger) {
 	name := t.Provider.Name()
@@ -176,7 +176,7 @@ func (s *Scheduler) logCodexStartupHint(name string, res *provider.TriggerResult
 	if !errors.As(err, &completionErr) || res == nil {
 		return
 	}
-	s.log.Printf("[%s] Hint: Codex may be waiting for a startup confirmation. Run this command in a terminal and check for confirmation dialogs: %s", name, res.Command)
+	s.log.Printf("[%s] Hint: Codex returned no completed turn. Run this command in a terminal and inspect its JSON output: %s", name, res.Command)
 	if home := os.Getenv("CODEX_HOME"); home != "" {
 		s.log.Printf("[%s] Use the same CODEX_HOME=%q as this watcher.", name, home)
 	} else {

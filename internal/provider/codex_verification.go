@@ -44,9 +44,6 @@ func quotaStore() (codexstate.Store, error) {
 }
 
 func quotaBucket(name string, cfg config.ProviderConfig) string {
-	if name == "spark" {
-		return "spark:" + normalizeCodexLimitName(cfg.Model)
-	}
 	return "codex"
 }
 
@@ -76,14 +73,7 @@ func readVerifiedUsage(ctx context.Context, name string, cfg config.ProviderConf
 	if err != nil {
 		return nil, "", err
 	}
-	rl := r.RateLimit
-	if name == "spark" {
-		rl, err = sparkRateLimitFromResponse(r, cfg.Model)
-		if err != nil {
-			return nil, account, err
-		}
-	}
-	u := codexUsageToUsage(name, body, r, rl)
+	u := codexUsageToUsage(name, body, r)
 	u.QuotaAccount = account
 	if r.ResetCredits != nil {
 		u.ResetCredits = &usage.ResetCredits{AvailableCount: r.ResetCredits.AvailableCount}
@@ -92,7 +82,20 @@ func readVerifiedUsage(ctx context.Context, name string, cfg config.ProviderConf
 	if ctx.Value(noQuotaStateKey{}) == true {
 		u.Verification = unknownVerification("")
 	} else if err == nil {
-		u.Verification, err = store.Observe(account, quotaBucket(name, cfg), u)
+		// Verification needs raw reset movement across observations. The public
+		// usage view omits unanchored reset estimates, as upstream requires.
+		observation := *u
+		for _, w := range []*codexWindow{r.RateLimit.Primary, r.RateLimit.Secondary} {
+			if w == nil || w.ResetAt <= 0 {
+				continue
+			}
+			if w.LimitWindowSeconds == observation.Weekly.WindowSeconds {
+				observation.Weekly.ResetsAt = time.Unix(w.ResetAt, 0)
+			} else if w.LimitWindowSeconds == observation.FiveHour.WindowSeconds {
+				observation.FiveHour.ResetsAt = time.Unix(w.ResetAt, 0)
+			}
+		}
+		u.Verification, err = store.Observe(account, quotaBucket(name, cfg), &observation)
 	}
 	if err != nil {
 		u.Verification = unknownVerification("quota state unavailable: " + err.Error())
@@ -149,7 +152,7 @@ func pingVerified(ctx context.Context, name string, cfg config.ProviderConfig, d
 		}
 		warning = "quota coordination unavailable: " + storeErr.Error()
 	}
-	// The PTY deadline and claim deadline must describe the same bounded operation.
+	// The CLI deadline and claim deadline must describe the same bounded operation.
 	pingStage(ctx, "sending ping")
 	triggerCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	res, triggerErr := triggerCodex(triggerCtx, cfg, false)

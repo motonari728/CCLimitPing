@@ -13,11 +13,23 @@ type Window struct {
 	WindowSeconds int
 }
 
-// Active reports whether the window currently has consumption recorded and has
-// not yet reset. A freshly reset (or never-started) window is inactive, which
-// is the signal the scheduler uses to decide whether to ping immediately.
+// Active reports whether the window is currently running: a request has started
+// it and it has not yet reset. This is the signal the scheduler uses to decide
+// whether to ping immediately.
+//
+// Consumption deliberately plays no part. A window that a limitping ping is the
+// only thing to have touched reports 0% used — Codex rounds used_percent to
+// whole numbers, so a ~20k-token ping is 0, and Claude's utilization is just as
+// coarse — so requiring consumption made the scheduler blind to the very window
+// it had just started, and it re-pinged on a schedule that drifted a little
+// further every cycle.
+//
+// A reset time is therefore the whole signal, and readers are responsible for
+// only setting one on a window that a request actually started: a provider that
+// reports an idle window as a full-length one must have that normalized away
+// (see codexWindowAnchored), or watch would wait out a window that never began.
 func (w Window) Active() bool {
-	return w.UsedPercent > 0 && !w.ResetsAt.IsZero() && time.Now().Before(w.ResetsAt)
+	return !w.ResetsAt.IsZero() && time.Now().Before(w.ResetsAt)
 }
 
 // Missing reports whether the provider returned no data for this window at
